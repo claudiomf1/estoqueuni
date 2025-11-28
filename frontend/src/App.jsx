@@ -4,6 +4,7 @@ import { useContext } from 'react';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import { TenantProvider } from './context/TenantContext';
 import Navbar from './components/Navbar';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import ContasBling from './pages/ContasBling';
@@ -37,17 +38,33 @@ function PrivateRoute({ children }) {
   return children;
 }
 
+// Componente que decide entre Landing ou Home
+function LandingOrHome() {
+  const { isAuthenticated, isLoading } = useContext(AuthContext);
+
+  if (isLoading) {
+    return <div className="text-center p-5">Carregando...</div>;
+  }
+
+  if (isAuthenticated) {
+    return (
+      <PrivateRoute>
+        <Home />
+      </PrivateRoute>
+    );
+  }
+
+  return <Landing />;
+}
+
 function AppRoutes() {
   return (
     <Routes>
+      <Route path="/landing" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route
         path="/"
-        element={
-          <PrivateRoute>
-            <Home />
-          </PrivateRoute>
-        }
+        element={<LandingOrHome />}
       />
       <Route
         path="/contas-bling"
@@ -87,15 +104,25 @@ function AppRoutes() {
   );
 }
 
+function AppContent() {
+  const { isAuthenticated } = useContext(AuthContext);
+
+  return (
+    <>
+      {isAuthenticated && <Navbar />}
+      <div className={isAuthenticated ? 'main-content-with-fixed-navbar' : ''}>
+        <AppRoutes />
+      </div>
+    </>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TenantProvider>
-          <Navbar />
-          <div className="main-content-with-fixed-navbar">
-            <AppRoutes />
-          </div>
+          <AppContent />
         </TenantProvider>
       </AuthProvider>
     </QueryClientProvider>

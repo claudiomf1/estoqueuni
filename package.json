@@ -2,9 +2,15 @@
   "name": "estoqueuni-app",
   "private": true,
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev-estoqueuni": "npm --prefix ./frontend run dev",
-    "dev": "npm run dev-estoqueuni"
+    "dev": "npm run dev-estoqueuni",
+    "commit-ia": "node ./commit-ia.js"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1"
   }
 }
 

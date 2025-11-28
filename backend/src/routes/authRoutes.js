@@ -3,12 +3,14 @@ import {
   loginHandler,
   logoutHandler,
   verifyTokenHandler,
+  cadastroHandler,
 } from '../controllers/authController.js';
 
 const router = express.Router();
 
 // Rotas de autenticação
 router.post('/login', loginHandler);
+router.post('/cadastro', cadastroHandler);
 router.post('/logout', logoutHandler);
 router.get('/verificarToken', verifyTokenHandler);
 

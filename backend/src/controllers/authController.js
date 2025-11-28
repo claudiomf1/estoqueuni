@@ -148,6 +148,97 @@ export async function logoutHandler(_req, res) {
 }
 
 /**
+ * Handler de cadastro
+ * POST /api/auth/cadastro
+ */
+export async function cadastroHandler(req, res) {
+  const { nome, email, usuario, senha, rota_base = 'estoqueuni' } = req.body || {};
+
+  if (!nome || !email || !usuario || !senha) {
+    return res.status(400).json({
+      success: false,
+      message: 'Todos os campos são obrigatórios.',
+    });
+  }
+
+  if (senha.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'A senha deve ter no mínimo 6 caracteres.',
+    });
+  }
+
+  try {
+    // Verificar se usuário já existe
+    const usuarioExistente = await Usuario.findOne({
+      $or: [{ nome_usuario: usuario }, { email }],
+      rota_base,
+    });
+
+    if (usuarioExistente) {
+      return res.status(400).json({
+        success: false,
+        message: 'Usuário ou e-mail já cadastrado.',
+      });
+    }
+
+    // Verificar se tenant já existe
+    const tenantExistente = await Tenant.findOne({
+      $or: [{ usuario }, { email }],
+      rota_base,
+    });
+
+    if (tenantExistente) {
+      return res.status(400).json({
+        success: false,
+        message: 'Usuário ou e-mail já cadastrado.',
+      });
+    }
+
+    // Hash da senha
+    const senhaHash = await bcrypt.hash(senha, 10);
+
+    // Criar tenant primeiro
+    const novoTenant = new Tenant({
+      usuario,
+      nome,
+      email,
+      senha: senhaHash,
+      rota_base,
+      tipoLocatario: 'Pessoa Jurídica',
+    });
+
+    await novoTenant.save();
+
+    // Criar usuário associado ao tenant
+    const novoUsuario = new Usuario({
+      nome_usuario: usuario,
+      nome,
+      email,
+      senha: senhaHash,
+      rota_base,
+      tenantId: novoTenant._id.toString(),
+      nivel_acesso: 'Administrador',
+      ativo: true,
+    });
+
+    await novoUsuario.save();
+
+    return res.json({
+      success: true,
+      message: 'Cadastro realizado com sucesso!',
+      tenantId: novoTenant._id.toString(),
+    });
+  } catch (error) {
+    console.error('[cadastro] Erro ao cadastrar:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao realizar cadastro.',
+    });
+  }
+}
+
+/**
  * Handler para verificar token
  * GET /api/auth/verificarToken
  */
