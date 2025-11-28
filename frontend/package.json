@@ -1,0 +1,49 @@
+{
+  "name": "estoqueuni-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev-estoqueuni": "npm run kill-ports && concurrently -n backend,frontend \"npm run backend:dev\" \"npm run frontend:dev:wait\"",
+    "frontend:dev": "vite --config vite.config.estoqueuni.js",
+    "frontend:dev:wait": "wait-on -t 180000 http://localhost:5010/health && npm run frontend:dev",
+    "commit-ai": "node ./commit-estoqueuni.js",
+    "backend:dev": "npm --prefix ../backend run dev",
+    "kill-ports": "lsof -ti:5000,5010,5174 | xargs -r kill -9 2>/dev/null || true",
+    "ssh_Linode_dallas": "ssh Linode_dallas",
+    "deploy-estoqueuni": "npm run test && npm run prebuild && vite build --config vite.config.estoqueuni.js && npm run postbuild",
+    "deploy-estoqueuni-dev": "npm run test && npm run prebuild && vite build --mode staging --config vite.config.estoqueuni.js && npm run postbuild-dev",
+    "test": "echo \"Tests will be added here\"",
+    "prebuild": "npm --prefix ../../../frontend_project run clean:lixo && npm --prefix ../../../frontend_project run enable-upload",
+    "postbuild": "bash ../../../frontend_project/upload-via-ssh.sh estoqueuni-www && npm --prefix ../../../frontend_project run disable-upload && ssh Linode_dallas 'pm2 restart estoqueuni || pm2 start npm --name estoqueuni --cwd /home/claudio/apiNegocios360/apps/estoqueuni/backend -- start'",
+    "postbuild-dev": "bash ../../../frontend_project/upload-via-ssh.sh estoqueuni-dev && npm --prefix ../../../frontend_project run disable-upload && ssh Linode_dallas 'pm2 restart estoqueuni-dev || pm2 start npm --name estoqueuni-dev --cwd /home/claudio/apiNegocios360/apps/estoqueuni/backend -- start'",
+    "preview": "vite preview --config vite.config.estoqueuni.js",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "dev": "npm run dev-estoqueuni"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.24.0",
+    "axios": "^1.11.0",
+    "react-bootstrap": "^2.10.2",
+    "bootstrap": "^5.3.0",
+    "react-query": "^3.39.3",
+    "react-bootstrap-icons": "^1.11.6",
+    "prop-types": "^15.8.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^8.50.0",
+    "eslint-plugin-react": "^7.34.1",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.6",
+    "kill-port": "^2.0.1",
+    "wait-on": "^8.0.1",
+    "vite": "^6.2.1"
+  },
+  "overrides": {}
+}

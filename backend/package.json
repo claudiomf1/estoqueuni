@@ -1,0 +1,30 @@
+{
+  "name": "estoqueuni-backend",
+  "version": "1.0.0",
+  "description": "Backend para sistema de estoque unificado",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "ESTOQUEUNI_PORT=5010 nodemon src/index.js",
+    "start": "node src/index.js",
+    "test": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "lint": "eslint .",
+    "test:watch": "npm run test -- --watch"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongoose": "^8.5.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "axios": "^1.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.3",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "eslint": "^8.50.0",
+    "jest": "^29.7.0"
+  }
+}

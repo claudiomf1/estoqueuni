@@ -1,0 +1,251 @@
+/* Estilos para o componente SincronizacaoEstoque */
+
+.sincronizacao-estoque-container {
+  position: relative;
+  padding: 20px;
+  max-width: 100%;
+}
+
+.sincronizacao-estoque-header {
+  margin-bottom: 20px;
+}
+
+.sincronizacao-estoque-header h2 {
+  margin: 0;
+  color: #333;
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.barra-busca-acoes {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.campo-busca {
+  flex: 1;
+  min-width: 250px;
+  max-width: 400px;
+}
+
+.grupo-botoes-acoes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.area-status {
+  min-height: 0;
+  margin-bottom: 15px;
+}
+
+.tabela-container {
+  max-height: calc(100vh - 400px);
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+  margin-bottom: 15px;
+}
+
+.tabela-produtos {
+  width: 100%;
+  min-width: 1200px;
+  margin-bottom: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.tabela-produtos thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #fff;
+}
+
+.tabela-produtos thead th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  text-align: left;
+  padding: 12px;
+  border-bottom: 2px solid #dee2e6;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.tabela-produtos thead th.ordenavel {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.tabela-produtos thead th.ordenavel:hover {
+  background-color: #e9ecef;
+}
+
+.tabela-produtos thead th.ordenado-asc::after {
+  content: ' ▲';
+  font-size: 0.7em;
+  color: #007bff;
+}
+
+.tabela-produtos thead th.ordenado-desc::after {
+  content: ' ▼';
+  font-size: 0.7em;
+  color: #007bff;
+}
+
+.tabela-produtos tbody td {
+  padding: 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.tabela-produtos tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.botao-expandir {
+  padding: 0;
+  color: #007bff;
+  text-decoration: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.botao-expandir:hover {
+  color: #0056b3;
+}
+
+.estoque-por-conta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.conta-estoque-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.quantidade-estoque {
+  font-weight: 600;
+  color: #333;
+  margin-left: 8px;
+}
+
+.estoque-por-conta-resumo {
+  color: #6c757d;
+  font-size: 0.9em;
+}
+
+.detalhes-produto-expandido {
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+}
+
+.detalhes-produto-expandido h6 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.controles-paginacao {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.contador-paginacao {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.contador-produtos {
+  margin: 0;
+  color: #495057;
+  font-size: 0.95rem;
+}
+
+.texto-busca {
+  color: #6c757d;
+  font-size: 0.9em;
+}
+
+.select-itens-por-pagina {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label-itens-por-pagina {
+  margin: 0;
+  color: #495057;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.select-itens-por-pagina-control {
+  width: auto;
+  min-width: 80px;
+}
+
+.navegacao-paginacao {
+  display: flex;
+  justify-content: center;
+  margin-top: 15px;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+  .sincronizacao-estoque-container {
+    padding: 10px;
+  }
+
+  .barra-busca-acoes {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .campo-busca {
+    max-width: 100%;
+  }
+
+  .tabela-container {
+    max-height: calc(100vh - 300px);
+  }
+
+  .controles-paginacao {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+
+
+
+
+
+
+
