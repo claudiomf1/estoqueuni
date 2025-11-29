@@ -6,7 +6,7 @@ import { abrirPopupAutorizacaoBling } from '@/utils/blingAutorizacao';
 const API_BASE = '/api/bling';
 
 const construirRedirectPadrao = () => {
-  if (typeof window === 'undefined' || !window.location) {
+  if (typeof window === 'undefined' || !window.location) {  
     return 'https://estoqueuni.com.br/bling/callback';
   }
 
