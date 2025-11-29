@@ -1,0 +1,22 @@
+.logo-preview-container {
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  background: #f8f9fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.logo-preview {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+}
+
+.painel-presidente-login-page {
+  min-height: 100vh;
+  background: #000000;
+}
+

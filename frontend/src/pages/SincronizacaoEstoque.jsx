@@ -43,6 +43,7 @@ export default function SincronizacaoEstoque() {
 
   const status = statusResponse || {};
   const configDepositosAtual = configDepositos || configResponse || {};
+  const cronjobConfigurado = status?.cronjob || configDepositosAtual?.cronjob || {};
 
   const handleSincronizacaoCompleta = () => {
     refetchStatus();
@@ -76,10 +77,19 @@ export default function SincronizacaoEstoque() {
       />
 
       {/* Configuração de Webhook */}
-      <ConfiguracaoWebhook tenantId={tenantId} />
+      <ConfiguracaoWebhook
+        tenantId={tenantId}
+        configuracao={configDepositosAtual}
+        isLoading={isLoadingConfig}
+      />
 
       {/* Configuração de Cronjob */}
-      <ConfiguracaoCronjob tenantId={tenantId} />
+      <ConfiguracaoCronjob
+        tenantId={tenantId}
+        cronjob={cronjobConfigurado}
+        isLoading={isLoadingStatus}
+        onConfigAtualizada={refetchStatus}
+      />
 
       {/* Sincronização Manual */}
       <SincronizacaoManual

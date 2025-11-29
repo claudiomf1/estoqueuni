@@ -24,16 +24,31 @@ export default function HistoricoSincronizacoes({ tenantId }) {
     }),
     {
       enabled: !!tenantId,
-      select: (response) => ({
-        sincronizacoes: response.data?.data || response.data?.sincronizacoes || [],
-        total: response.data?.total || 0
-      })
+      select: (response) => {
+        const payload = response.data?.data || {};
+        const eventos = Array.isArray(payload.eventos)
+          ? payload.eventos
+          : Array.isArray(response.data?.eventos)
+          ? response.data.eventos
+          : Array.isArray(response.data)
+          ? response.data
+          : [];
+
+        return {
+          sincronizacoes: eventos,
+          paginacao: payload.paginacao || response.data?.paginacao || {
+            total: eventos.length,
+            totalPaginas: Math.ceil(eventos.length / itensPorPagina) || 1
+          }
+        };
+      }
     }
   );
 
   const historico = historicoResponse?.sincronizacoes || [];
-  const totalItens = historicoResponse?.total || 0;
-  const totalPaginas = Math.ceil(totalItens / itensPorPagina);
+  const paginacao = historicoResponse?.paginacao || {};
+  const totalItens = paginacao.total ?? historico.length;
+  const totalPaginas = (paginacao.totalPaginas ?? Math.ceil((totalItens || 0) / itensPorPagina)) || 1;
 
   const handleFiltroChange = (campo, valor) => {
     setFiltros(prev => ({ ...prev, [campo]: valor }));

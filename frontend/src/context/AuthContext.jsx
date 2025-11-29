@@ -54,7 +54,7 @@ export const AuthProvider = ({ children }) => {
         setUser(data.userName || data.nome_usuario);
         setTenantId(data.tenantId);
         setEmail(data.email);
-        setNivelAcesso(data.nivel_acesso);
+        setNivelAcesso(data.nivel_acesso || data.nivelAcesso);
         setIsAuthenticated(true);
       } else {
         setIsAuthenticated(false);
@@ -88,6 +88,7 @@ export const AuthProvider = ({ children }) => {
     setTenantId,
     email,
     nivelAcesso,
+    setNivelAcesso,
     login,
     logout,
     checkAuth,

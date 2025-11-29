@@ -3,12 +3,14 @@ import { Navbar as BootstrapNavbar, Nav, Container, NavDropdown } from 'react-bo
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTenant } from '../context/TenantContext';
 import { AuthContext } from '../context/AuthContext';
+import useIsOwner from '../hooks/useIsOwner';
 
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { tenantId } = useTenant();
   const { user, email, logout, isAuthenticated } = useContext(AuthContext);
+  const isOwner = useIsOwner();
 
   // Não mostrar navbar na página de login
   if (location.pathname === '/login' || !isAuthenticated) {
@@ -68,6 +70,15 @@ export default function Navbar() {
             >
               Sincronização
             </Nav.Link>
+            {isOwner && (
+              <Nav.Link
+                as={Link}
+                to="/painelpresidente"
+                active={isActive('/painelpresidente')}
+              >
+                Painel do Presidente
+              </Nav.Link>
+            )}
           </Nav>
           <Nav>
             <NavDropdown title={user || 'Usuário'} id="user-dropdown" align="end">

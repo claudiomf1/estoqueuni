@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Container, Row, Col, Card, Button, Form, Alert, Modal } from 'react-bootstrap';
 import { AuthContext } from '../context/AuthContext';
@@ -17,8 +17,34 @@ export default function Landing() {
   });
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, setTenantId } = useContext(AuthContext);
+  const { login, setTenantId, setNivelAcesso } = useContext(AuthContext);
   const navigate = useNavigate();
+  const [logoUrl, setLogoUrl] = useState(null);
+  const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState(false);
+  const [mostrarSenhaCadastro, setMostrarSenhaCadastro] = useState(false);
+  const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false);
+
+  useEffect(() => {
+    carregarLogo();
+  }, []);
+
+  const carregarLogo = async () => {
+    try {
+      console.log('[Landing] Carregando logo...');
+      // Não passa tenantId - a rota pública busca qualquer logo configurado
+      const response = await fetch('/api/public/landing-config/logo');
+      const data = await response.json();
+      console.log('[Landing] Resposta da API:', data);
+      if (data.success && data.data?.logoUrl) {
+        console.log('[Landing] Logo carregado:', data.data.logoUrl);
+        setLogoUrl(data.data.logoUrl);
+      } else {
+        console.log('[Landing] Logo não encontrado ou não configurado');
+      }
+    } catch (error) {
+      console.error('[Landing] Erro ao carregar logo:', error);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -41,8 +67,14 @@ export default function Landing() {
 
       if (data.success) {
         setTenantId(data.user.tenantId);
+        const nivelAcesso = data.nivel_acesso || data.user?.nivel_acesso || '';
+        if (setNivelAcesso) {
+          setNivelAcesso(nivelAcesso);
+        }
         login();
         setShowLogin(false);
+        
+        // Sempre redireciona para o dashboard quando logar pela landing page
         navigate('/');
       } else {
         setErrorMessage(data.message || 'Usuário ou senha inválidos.');
@@ -111,6 +143,11 @@ export default function Landing() {
           <Row className="align-items-center">
             <Col lg={6}>
               <div className="hero-content">
+                {logoUrl && (
+                  <div className="hero-logo mb-4">
+                    <img src={logoUrl} alt="EstoqueUni Logo" className="landing-logo" />
+                  </div>
+                )}
                 <div className="hero-badge">
                   <span>✨ Sincronização Inteligente de Estoques</span>
                 </div>
@@ -353,7 +390,7 @@ export default function Landing() {
       </footer>
 
       {/* Login Modal */}
-      <Modal show={showLogin} onHide={() => setShowLogin(false)} centered>
+      <Modal show={showLogin} onHide={() => { setShowLogin(false); setMostrarSenhaLogin(false); }} centered>
         <Modal.Header closeButton>
           <Modal.Title>Fazer Login</Modal.Title>
         </Modal.Header>
@@ -371,13 +408,22 @@ export default function Landing() {
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Senha</Form.Label>
-              <Form.Control
-                type="password"
-                placeholder="Digite sua senha"
-                value={loginData.password}
-                onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                required
-              />
+              <div className="input-group">
+                <Form.Control
+                  type={mostrarSenhaLogin ? 'text' : 'password'}
+                  placeholder="Digite sua senha"
+                  value={loginData.password}
+                  onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                  required
+                />
+                <Button
+                  variant="outline-secondary"
+                  type="button"
+                  onClick={() => setMostrarSenhaLogin(!mostrarSenhaLogin)}
+                >
+                  {mostrarSenhaLogin ? '🙈' : '👁️'}
+                </Button>
+              </div>
             </Form.Group>
             {errorMessage && <Alert variant="danger">{errorMessage}</Alert>}
             <Button variant="primary" type="submit" className="w-100" disabled={loading}>
@@ -388,7 +434,7 @@ export default function Landing() {
       </Modal>
 
       {/* Cadastro Modal */}
-      <Modal show={showCadastro} onHide={() => setShowCadastro(false)} centered size="lg">
+      <Modal show={showCadastro} onHide={() => { setShowCadastro(false); setMostrarSenhaCadastro(false); setMostrarConfirmarSenha(false); }} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>Criar Conta</Modal.Title>
         </Modal.Header>
@@ -434,27 +480,45 @@ export default function Landing() {
               <Col md={6}>
                 <Form.Group className="mb-3">
                   <Form.Label>Senha</Form.Label>
-                  <Form.Control
-                    type="password"
-                    placeholder="Mínimo 6 caracteres"
-                    value={cadastroData.senha}
-                    onChange={(e) => setCadastroData({ ...cadastroData, senha: e.target.value })}
-                    required
-                    minLength={6}
-                  />
+                  <div className="input-group">
+                    <Form.Control
+                      type={mostrarSenhaCadastro ? 'text' : 'password'}
+                      placeholder="Mínimo 6 caracteres"
+                      value={cadastroData.senha}
+                      onChange={(e) => setCadastroData({ ...cadastroData, senha: e.target.value })}
+                      required
+                      minLength={6}
+                    />
+                    <Button
+                      variant="outline-secondary"
+                      type="button"
+                      onClick={() => setMostrarSenhaCadastro(!mostrarSenhaCadastro)}
+                    >
+                      {mostrarSenhaCadastro ? '🙈' : '👁️'}
+                    </Button>
+                  </div>
                 </Form.Group>
               </Col>
               <Col md={6}>
                 <Form.Group className="mb-3">
                   <Form.Label>Confirmar Senha</Form.Label>
-                  <Form.Control
-                    type="password"
-                    placeholder="Confirme sua senha"
-                    value={cadastroData.confirmarSenha}
-                    onChange={(e) => setCadastroData({ ...cadastroData, confirmarSenha: e.target.value })}
-                    required
-                    minLength={6}
-                  />
+                  <div className="input-group">
+                    <Form.Control
+                      type={mostrarConfirmarSenha ? 'text' : 'password'}
+                      placeholder="Confirme sua senha"
+                      value={cadastroData.confirmarSenha}
+                      onChange={(e) => setCadastroData({ ...cadastroData, confirmarSenha: e.target.value })}
+                      required
+                      minLength={6}
+                    />
+                    <Button
+                      variant="outline-secondary"
+                      type="button"
+                      onClick={() => setMostrarConfirmarSenha(!mostrarConfirmarSenha)}
+                    >
+                      {mostrarConfirmarSenha ? '🙈' : '👁️'}
+                    </Button>
+                  </div>
                 </Form.Group>
               </Col>
             </Row>

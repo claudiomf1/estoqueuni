@@ -5,6 +5,26 @@ import { useQuery } from 'react-query';
 import { sincronizacaoApi } from '../../services/sincronizacaoApi';
 import { blingApi } from '../../services/blingApi';
 
+const extrairListaContas = (response) => {
+  if (!response || !response.data) {
+    return [];
+  }
+
+  const candidatos = [
+    response.data.contas,
+    response.data.data?.contas,
+    response.data.data,
+  ];
+
+  for (const candidato of candidatos) {
+    if (Array.isArray(candidato)) {
+      return candidato;
+    }
+  }
+
+  return [];
+};
+
 /**
  * Componente genérico para configuração de depósitos
  * Permite adicionar/remover depósitos e configurar regra de sincronização
@@ -31,7 +51,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
     {
       enabled: !!tenantId,
       refetchOnWindowFocus: false,
-      select: (response) => response.data?.data || response.data || []
+      select: (response) => extrairListaContas(response)
     }
   );
 

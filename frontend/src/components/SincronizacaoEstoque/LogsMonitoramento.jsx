@@ -20,31 +20,46 @@ export default function LogsMonitoramento({ tenantId }) {
     {
       enabled: !!tenantId,
       refetchInterval: autoRefresh ? 5000 : false,
-      select: (response) => response.data?.data || response.data?.logs || []
+      select: (response) => {
+        const payload = response.data?.data;
+        if (payload) {
+          return {
+            logs: Array.isArray(payload.logs) ? payload.logs : [],
+            paginacao: payload.paginacao || {}
+          };
+        }
+
+        if (Array.isArray(response.data?.logs)) {
+          return { logs: response.data.logs, paginacao: {} };
+        }
+
+        if (Array.isArray(response.data)) {
+          return { logs: response.data, paginacao: {} };
+        }
+
+        return { logs: [], paginacao: {} };
+      }
     }
   );
 
-  const logs = logsResponse || [];
+  const logs = logsResponse?.logs || [];
 
-  const handleExportar = async () => {
-    try {
-      const response = await sincronizacaoApi.exportarLogs(tenantId, {
-        busca: busca || undefined,
-        nivel: nivel || undefined
-      });
-
-      const blob = new Blob([response.data], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `logs-sincronizacao-${new Date().toISOString().split('T')[0]}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('Erro ao exportar logs: ' + (err.mensagem || err.message || 'Erro desconhecido'));
+  const handleExportar = () => {
+    if (!logs.length) {
+      alert('Não há logs para exportar com os filtros atuais.');
+      return;
     }
+
+    const linhas = logs.map((log) => JSON.stringify(log)).join('\n');
+    const blob = new Blob([linhas], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `logs-sincronizacao-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const formatarData = (data) => {

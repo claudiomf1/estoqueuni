@@ -1,32 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Form, Button, Alert, Spinner, Badge } from 'react-bootstrap';
 import { Clock, CheckCircle, XCircle } from 'react-bootstrap-icons';
 import { sincronizacaoApi } from '../../services/sincronizacaoApi';
-import { useQuery } from 'react-query';
 
-export default function ConfiguracaoCronjob({ tenantId }) {
-  const [ativo, setAtivo] = useState(false);
-  const [intervaloMinutos, setIntervaloMinutos] = useState(60);
+export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading = false, onConfigAtualizada }) {
+  const [ativo, setAtivo] = useState(cronjob?.ativo || false);
+  const [intervaloMinutos, setIntervaloMinutos] = useState(cronjob?.intervaloMinutos || 60);
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState(null);
   const [erro, setErro] = useState(null);
+  const [configLocal, setConfigLocal] = useState(cronjob || {});
 
-  const { data: configResponse, isLoading, refetch } = useQuery(
-    ['cronjob-config', tenantId],
-    () => sincronizacaoApi.obterConfiguracaoCronjob(tenantId),
-    {
-      enabled: !!tenantId,
-      select: (response) => response.data?.data || response.data,
-      onSuccess: (data) => {
-        if (data) {
-          setAtivo(data.ativo || false);
-          setIntervaloMinutos(data.intervaloMinutos || 60);
-        }
-      }
+  useEffect(() => {
+    if (cronjob) {
+      setConfigLocal(cronjob);
+      setAtivo(cronjob.ativo || false);
+      setIntervaloMinutos(cronjob.intervaloMinutos || 60);
     }
-  );
-
-  const config = configResponse || {};
+  }, [cronjob]);
 
   const handleSalvar = async () => {
     setErro(null);
@@ -47,7 +38,9 @@ export default function ConfiguracaoCronjob({ tenantId }) {
 
       if (response.data?.success !== false) {
         setMensagem('Configuração do cronjob salva com sucesso!');
-        refetch();
+        if (typeof onConfigAtualizada === 'function') {
+          onConfigAtualizada();
+        }
         setTimeout(() => setMensagem(null), 5000);
       } else {
         throw new Error(response.data?.message || 'Erro ao salvar configuração');
@@ -70,9 +63,9 @@ export default function ConfiguracaoCronjob({ tenantId }) {
   };
 
   const calcularProximaExecucao = () => {
-    if (!config.ultimaExecucao || !ativo) return null;
+    if (!configLocal.ultimaExecucao || !ativo) return null;
     try {
-      const ultima = new Date(config.ultimaExecucao);
+      const ultima = new Date(configLocal.ultimaExecucao);
       const proxima = new Date(ultima.getTime() + intervaloMinutos * 60000);
       return proxima;
     } catch {
@@ -80,9 +73,9 @@ export default function ConfiguracaoCronjob({ tenantId }) {
     }
   };
 
-  const proximaExecucao = calcularProximaExecucao();
+  const proximaExecucao = configLocal.proximaExecucao || calcularProximaExecucao();
 
-  if (isLoading) {
+  if (isLoading && !('intervaloMinutos' in configLocal)) {
     return (
       <Card className="mb-4">
         <Card.Header>
@@ -159,7 +152,7 @@ export default function ConfiguracaoCronjob({ tenantId }) {
 
             <div className="col-md-6 mb-2">
               <div className="fw-bold">Última Execução:</div>
-              <div>{formatarData(config.ultimaExecucao)}</div>
+              <div>{formatarData(configLocal.ultimaExecucao)}</div>
             </div>
 
             {proximaExecucao && (
@@ -171,17 +164,17 @@ export default function ConfiguracaoCronjob({ tenantId }) {
 
             <div className="col-md-6 mb-2">
               <div className="fw-bold">Total de Execuções:</div>
-              <div>{config.totalExecucoes || 0}</div>
+              <div>{configLocal.totalExecucoes || 0}</div>
             </div>
 
             <div className="col-md-6 mb-2">
               <div className="fw-bold">Execuções com Sucesso:</div>
-              <div className="text-success">{config.execucoesSucesso || 0}</div>
+              <div className="text-success">{configLocal.execucoesSucesso || 0}</div>
             </div>
 
             <div className="col-md-6 mb-2">
               <div className="fw-bold">Execuções com Erro:</div>
-              <div className="text-danger">{config.execucoesErro || 0}</div>
+              <div className="text-danger">{configLocal.execucoesErro || 0}</div>
             </div>
           </div>
         </div>

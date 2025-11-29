@@ -1,10 +1,22 @@
-import React from 'react';
-import { Container, Row, Col, Card } from 'react-bootstrap';
+import React, { useContext } from 'react';
+import { Container, Row, Col, Card, Spinner } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import { useTenant } from '../context/TenantContext';
+import { AuthContext } from '../context/AuthContext';
 
 export default function Home() {
   const { tenantId } = useTenant();
+  const { isLoading } = useContext(AuthContext);
+
+  // Mostra loading enquanto verifica autenticação
+  if (isLoading) {
+    return (
+      <Container className="text-center p-5">
+        <Spinner animation="border" role="status" />
+        <p className="mt-3">Verificando permissões...</p>
+      </Container>
+    );
+  }
 
   return (
     <Container>

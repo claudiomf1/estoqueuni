@@ -15,10 +15,32 @@ import {
   Badge,
   Collapse
 } from 'react-bootstrap';
-import { ChevronDown, ChevronUp, ArrowRepeat } from 'react-bootstrap-icons';
+import { ChevronDown, ChevronUp, ArrowRepeat, BarChart } from 'react-bootstrap-icons';
 import { blingApi } from '../services/blingApi';
 import { produtoApi } from '../services/produtoApi';
+import RelatorioVerificacaoProdutos from './RelatorioVerificacaoProdutos';
+import EstoqueTotalColuna from './EstoqueTotalColuna';
 import './SincronizacaoEstoque.css';
+
+const extrairContasBling = (response) => {
+  if (!response || !response.data) {
+    return [];
+  }
+
+  const candidatos = [
+    response.data.contas,
+    response.data.data?.contas,
+    response.data.data,
+  ];
+
+  for (const candidato of candidatos) {
+    if (Array.isArray(candidato)) {
+      return candidato;
+    }
+  }
+
+  return [];
+};
 
 function SincronizacaoEstoque({ tenantId }) {
   const [filtro, setFiltro] = useState('');
@@ -45,6 +67,8 @@ function SincronizacaoEstoque({ tenantId }) {
     error: null
   });
 
+  const [showRelatorio, setShowRelatorio] = useState(false);
+
   // Query para buscar produtos
   const { data: produtosResponse, isLoading: isLoadingProdutos, refetch: refetchProdutos, isError: isErrorProdutos } = useQuery(
     ['produtos-estoque', tenantId],
@@ -58,7 +82,7 @@ function SincronizacaoEstoque({ tenantId }) {
 
   const produtos = produtosResponse || [];
 
-  // Query para buscar contas Bling (para mostrar nomes nas expansões)
+  // Query para buscar contas Bling (para mostrar nomes nas expansões e badges)
   const { data: contasResponse } = useQuery(
     ['bling-contas', tenantId],
     () => blingApi.listarContas(tenantId),
@@ -66,18 +90,42 @@ function SincronizacaoEstoque({ tenantId }) {
       enabled: !!tenantId,
       refetchOnWindowFocus: false,
       select: (response) => {
-        const contas = response.data?.data || response.data || [];
-        // Criar mapa de blingAccountId -> accountName
+        const contas = extrairContasBling(response);
         const mapaContas = {};
-        contas.forEach(conta => {
-          mapaContas[conta.blingAccountId] = conta.accountName || conta.store_name || 'Conta Bling';
+        const contasAtivas = [];
+        
+        contas.forEach((conta) => {
+          const chave = conta.blingAccountId || conta.id || conta._id;
+          if (!chave) {
+            return;
+          }
+          const nomeConta =
+            conta.accountName ||
+            conta.store_name ||
+            conta.storeName ||
+            'Conta Bling';
+          
+          mapaContas[chave] = nomeConta;
+          
+          // Adicionar apenas contas ativas para os badges
+          if (conta.isActive !== false && conta.is_active !== false) {
+            contasAtivas.push({
+              id: chave,
+              nome: nomeConta
+            });
+          }
         });
-        return mapaContas;
+        
+        return {
+          mapa: mapaContas,
+          contasAtivas: contasAtivas
+        };
       }
     }
   );
 
-  const mapaNomesContas = contasResponse || {};
+  const mapaNomesContas = contasResponse?.mapa || {};
+  const contasBlingAtivas = contasResponse?.contasAtivas || [];
 
   // Função de ordenação
   const handleSort = (dataKey) => {
@@ -329,6 +377,16 @@ function SincronizacaoEstoque({ tenantId }) {
     <div className="sincronizacao-estoque-container">
       <div className="sincronizacao-estoque-header">
         <h2>Sincronização de Estoque Unificado</h2>
+        {contasBlingAtivas.length > 0 && (
+          <div className="contas-bling-badges mt-2 mb-3">
+            <small className="text-muted me-2">Contas Bling conectadas:</small>
+            {contasBlingAtivas.map((conta) => (
+              <Badge key={conta.id} bg="primary" className="me-2">
+                {conta.nome}
+              </Badge>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Barra de busca e ações */}
@@ -368,6 +426,23 @@ function SincronizacaoEstoque({ tenantId }) {
                   Sincronizar Todos
                 </>
               )}
+            </Button>
+          </OverlayTrigger>
+          <OverlayTrigger
+            placement="top"
+            overlay={
+              <Tooltip id="tooltip-verificar-produtos">
+                Verifica quantos produtos existem no Bling vs EstoqueUni
+              </Tooltip>
+            }
+          >
+            <Button
+              variant="info"
+              onClick={() => setShowRelatorio(true)}
+              disabled={isLoadingProdutos}
+            >
+              <BarChart className="me-2" />
+              Verificar Produtos
             </Button>
           </OverlayTrigger>
         </div>
@@ -493,9 +568,10 @@ function SincronizacaoEstoque({ tenantId }) {
                       <td>{produto.nome || '-'}</td>
                       {/* Estoque Total */}
                       <td>
-                        <Badge bg={produto.estoque > 0 ? "success" : "secondary"}>
-                          {produto.estoque !== undefined && produto.estoque !== null ? produto.estoque : 0}
-                        </Badge>
+                        <EstoqueTotalColuna 
+                          produto={produto} 
+                          mapaNomesContas={mapaNomesContas}
+                        />
                       </td>
                       {/* Estoque por Conta (resumo) */}
                       <td>
@@ -616,6 +692,13 @@ function SincronizacaoEstoque({ tenantId }) {
           </Pagination>
         </div>
       )}
+
+      {/* Modal de Relatório de Verificação */}
+      <RelatorioVerificacaoProdutos
+        tenantId={tenantId}
+        show={showRelatorio}
+        onHide={() => setShowRelatorio(false)}
+      />
     </div>
   );
 }

@@ -1,8 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Modal, Table, Badge, Spinner, Form, Alert, InputGroup } from 'react-bootstrap';
 import PropTypes from 'prop-types';
+import { abrirPopupAutorizacaoBling } from '@/utils/blingAutorizacao';
 
 const API_BASE = '/api/bling';
+
+const construirRedirectPadrao = () => {
+  if (typeof window === 'undefined' || !window.location) {
+    return 'https://estoqueuni.com.br/bling/callback';
+  }
+
+  try {
+    const url = new URL(window.location.origin);
+    if (url.hostname === 'www.estoqueuni.com.br') {
+      url.hostname = 'estoqueuni.com.br';
+    }
+    if (url.hostname === 'estoqueuni.com.br') {
+      url.protocol = 'https:';
+    }
+    url.pathname = '/bling/callback';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch (erro) {
+    console.warn('Não foi possível normalizar o redirect padrão do Bling:', erro);
+    return `${window.location.origin}/bling/callback`;
+  }
+};
 
 /**
  * Gerenciador de múltiplas contas Bling para o EstoqueUni.
@@ -15,6 +39,7 @@ const API_BASE = '/api/bling';
 export default function BlingMultiAccountManager({ tenantId }) {
   // Não usar fallback 'default-tenant' - exige tenantId real
   const identificadorTenant = tenantId;
+  const redirectPadrao = useMemo(() => construirRedirectPadrao(), []);
 
   const [contas, definirContas] = useState([]);
   const [carregando, definirCarregando] = useState(false);
@@ -24,9 +49,7 @@ export default function BlingMultiAccountManager({ tenantId }) {
   const [nomeConta, definirNomeConta] = useState('');
   const [clientId, definirClientId] = useState('');
   const [clientSecret, definirClientSecret] = useState('');
-  const [redirectUri, definirRedirectUri] = useState(
-    `${window.location.origin}/bling/callback`
-  );
+  const [redirectUri, definirRedirectUri] = useState(redirectPadrao);
   const [contaSelecionada, definirContaSelecionada] = useState(null);
   const [acaoEmProgressoId, definirAcaoEmProgressoId] = useState(null);
   const [mostrarClientSecret, definirMostrarClientSecret] = useState(false);
@@ -37,6 +60,25 @@ export default function BlingMultiAccountManager({ tenantId }) {
     bling_client_secret: '',
     bling_redirect_uri: '',
   });
+
+  const abrirFluxoAutorizacao = async (urlAutorizacao) => {
+    try {
+      const resultado = await abrirPopupAutorizacaoBling(urlAutorizacao, {
+        aoPopupBloqueado: (urlFallback) => {
+          window.open(urlFallback, '_blank');
+        }
+      });
+
+      if (!resultado?.popup) {
+        definirErro(
+          'Popup do Bling bloqueado. Abrimos a autorização em nova aba; conclua o processo e recarregue a lista.'
+        );
+      }
+    } catch (erroPopup) {
+      console.error('❌ Erro ao abrir popup do Bling:', erroPopup);
+      definirErro(erroPopup.message || 'Erro ao abrir janela de autorização do Bling');
+    }
+  };
 
   const temDuasContasOuMais = useMemo(() => contas.length >= 2, [contas]);
 
@@ -123,13 +165,13 @@ export default function BlingMultiAccountManager({ tenantId }) {
 
       const urlAutorizacao = dados.authUrl || dados.data?.authUrl;
       if (urlAutorizacao) {
-        window.open(urlAutorizacao, '_blank', 'width=800,height=700');
+        await abrirFluxoAutorizacao(urlAutorizacao);
       }
 
       definirNomeConta('');
       definirClientId('');
       definirClientSecret('');
-      definirRedirectUri(`${window.location.origin}/bling/callback`);
+      definirRedirectUri(redirectPadrao);
       definirMostrarClientSecretAdicionar(false);
       definirMostrarModal(false);
       await carregarContas();
@@ -219,7 +261,7 @@ export default function BlingMultiAccountManager({ tenantId }) {
 
       const urlAutorizacao = dados.authUrl || dados.data?.authUrl;
       if (urlAutorizacao) {
-        window.open(urlAutorizacao, '_blank', 'width=800,height=700');
+        await abrirFluxoAutorizacao(urlAutorizacao);
       }
     } catch (erroReauth) {
       console.error('❌ Erro ao reautorizar conta Bling:', erroReauth);
@@ -241,7 +283,7 @@ export default function BlingMultiAccountManager({ tenantId }) {
           accountName: dados.data.accountName || '',
           bling_client_id: dados.data.bling_client_id || '',
           bling_client_secret: dados.data.bling_client_secret || '',
-          bling_redirect_uri: dados.data.bling_redirect_uri || `${window.location.origin}/bling/callback`,
+          bling_redirect_uri: dados.data.bling_redirect_uri || redirectPadrao,
         });
       } else {
         throw new Error(dados.error || 'Erro ao carregar detalhes da conta');
@@ -255,7 +297,7 @@ export default function BlingMultiAccountManager({ tenantId }) {
           accountName: conta.accountName || '',
           bling_client_id: '',
           bling_client_secret: '',
-          bling_redirect_uri: `${window.location.origin}/bling/callback`,
+          bling_redirect_uri: redirectPadrao,
         });
       }
     }
@@ -544,15 +586,14 @@ export default function BlingMultiAccountManager({ tenantId }) {
               </Form.Label>
               <Form.Control
                 type="text"
-                placeholder={`${window.location.origin}/bling/callback`}
+                placeholder={redirectPadrao}
                 value={redirectUri}
                 onChange={(evento) => definirRedirectUri(evento.target.value)}
                 required
               />
               <Form.Text className="text-muted">
                 <strong>IMPORTANTE:</strong> este valor deve ser exatamente igual ao "Redirect URI"
-                configurado no aplicativo Bling. Padrão de desenvolvimento:{' '}
-                {`${window.location.origin}/bling/callback`}
+                configurado no aplicativo Bling. Padrão recomendado: {redirectPadrao} (sem www).
               </Form.Text>
             </Form.Group>
           </Modal.Body>
@@ -676,7 +717,7 @@ export default function BlingMultiAccountManager({ tenantId }) {
               <Form.Label>Redirect URI</Form.Label>
               <Form.Control
                 type="text"
-                placeholder={`${window.location.origin}/bling/callback`}
+                placeholder={redirectPadrao}
                 value={dadosEdicao.bling_redirect_uri}
                 onChange={(evento) =>
                   definirDadosEdicao({ ...dadosEdicao, bling_redirect_uri: evento.target.value })
@@ -684,7 +725,7 @@ export default function BlingMultiAccountManager({ tenantId }) {
               />
               <Form.Text className="text-muted">
                 <strong>IMPORTANTE:</strong> este valor deve ser exatamente igual ao "Redirect URI"
-                configurado no aplicativo Bling. Padrão: {`${window.location.origin}/bling/callback`}
+                configurado no aplicativo Bling. Utilize {redirectPadrao} (sem www).
               </Form.Text>
             </Form.Group>
           </Modal.Body>

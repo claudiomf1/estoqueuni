@@ -103,6 +103,30 @@ export const produtoApi = {
   atualizarProduto: (tenantId, sku, data) =>
     api.patch(`/${sku}`, data, {
       params: { tenantId }
+    }),
+
+  /**
+   * Verifica quantos produtos existem no Bling vs EstoqueUni
+   * @param {string} tenantId - ID do tenant
+   * @returns {Promise} Resposta com relatório de verificação
+   */
+  verificarProdutos: (tenantId) =>
+    api.get('/verificacao', {
+      params: { tenantId }
+    }),
+
+  /**
+   * Importa produtos do Bling para o EstoqueUni
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @param {number} limite - Limite de produtos a importar (opcional, se não informado importa todos)
+   * @returns {Promise} Resposta com resultado da importação
+   */
+  importarProdutos: (tenantId, blingAccountId, limite = null) =>
+    api.post('/importar', {
+      tenantId,
+      blingAccountId,
+      limite: limite || undefined
     })
 };
 

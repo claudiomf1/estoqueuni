@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Form, Button, Alert, Spinner, ProgressBar } from 'react-bootstrap';
 import { ArrowRepeat, Search } from 'react-bootstrap-icons';
-import { sincronizacaoApi } from '../../services/sincronizacaoApi';
+import { blingApi } from '../../services/blingApi';
 
 export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta }) {
   const [sku, setSku] = useState('');
@@ -18,7 +18,7 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
     setSincronizandoTodos(true);
 
     try {
-      const response = await sincronizacaoApi.sincronizarTodos(tenantId);
+      const response = await blingApi.sincronizarEstoqueUnificado(tenantId);
       
       if (response.data?.success !== false) {
         const totalProcessado = response.data?.totalProcessado || response.data?.processedCount || 0;
@@ -54,7 +54,7 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
     setSincronizandoProduto(true);
 
     try {
-      const response = await sincronizacaoApi.sincronizarProduto(tenantId, sku.trim());
+      const response = await blingApi.sincronizarEstoqueProduto(tenantId, sku.trim());
       
       if (response.data?.success !== false) {
         setProgresso(100);

@@ -1,0 +1,40 @@
+/* EstoqueTotalColuna.css */
+.estoque-total-coluna {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.estoque-por-conta-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conta-estoque-linha {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.conta-estoque-linha .nome-conta {
+  color: #6c757d;
+  font-weight: 500;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.conta-estoque-linha .valor-estoque {
+  color: #212529;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.estoque-total-badge {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #dee2e6;
+}
+

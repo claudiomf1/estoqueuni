@@ -9,7 +9,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, setTenantId } = useContext(AuthContext);
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const { login, setTenantId, setNivelAcesso } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -35,7 +36,16 @@ export default function Login() {
 
       if (data.success) {
         setTenantId(data.user.tenantId);
+        const nivelAcesso = data.nivel_acesso || data.user?.nivel_acesso || '';
+        console.log('[Login] nivel_acesso recebido:', nivelAcesso);
+        console.log('[Login] data completa:', data);
+        if (setNivelAcesso) {
+          setNivelAcesso(nivelAcesso);
+        }
         login();
+        
+        // Login feito pela página pública deve sempre levar ao dashboard padrão
+        console.log('[Login] Redirecionando para / (home)');
         navigate('/');
       } else {
         setErrorMessage(data.message || 'Usuário ou senha inválidos.');
@@ -73,14 +83,23 @@ export default function Login() {
 
               <Form.Group className="mb-3">
                 <Form.Label>Senha</Form.Label>
-                <Form.Control
-                  type="password"
-                  placeholder="Digite sua senha"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
+                <div className="input-group">
+                  <Form.Control
+                    type={mostrarSenha ? 'text' : 'password'}
+                    placeholder="Digite sua senha"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                  />
+                  <Button
+                    variant="outline-secondary"
+                    type="button"
+                    onClick={() => setMostrarSenha(!mostrarSenha)}
+                  >
+                    {mostrarSenha ? '🙈' : '👁️'}
+                  </Button>
+                </div>
               </Form.Group>
 
               {errorMessage && (

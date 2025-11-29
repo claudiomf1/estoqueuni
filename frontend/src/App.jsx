@@ -12,6 +12,7 @@ import Estoque from './pages/Estoque';
 import Produtos from './pages/Produtos';
 import SincronizacaoEstoque from './pages/SincronizacaoEstoque';
 import BlingCallback from './pages/BlingCallback';
+import PainelPresidente from './pages/PainelPresidente';
 
 // Criar instância do QueryClient
 const queryClient = new QueryClient({
@@ -99,6 +100,10 @@ function AppRoutes() {
         }
       />
       <Route path="/bling/callback" element={<BlingCallback />} />
+      <Route
+        path="/painelpresidente"
+        element={<PainelPresidente />}
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

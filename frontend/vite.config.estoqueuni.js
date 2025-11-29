@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
   const devPort = Number(process.env.ESTOQUEUNI_VITE_PORT || 5174);
 
   const envConfig = {
-    base: './',
+    base: '/',
     server: {
       port: devPort,
       strictPort: true,
