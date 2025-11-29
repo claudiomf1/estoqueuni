@@ -30,6 +30,12 @@ const produtoSchema = new mongoose.Schema({
     of: Number,
     default: {},
   },
+  // Array de IDs das contas Bling onde o produto existe
+  contasBling: {
+    type: [String],
+    default: [],
+    index: true,
+  },
   ultimaSincronizacao: {
     type: Date,
   },
@@ -49,60 +55,70 @@ produtoSchema.index({ tenantId: 1, sku: 1 }, { unique: true });
 // Índice simples para tenantId (já existe acima, mas mantido para clareza)
 // Índice simples para sku (já existe acima, mas mantido para clareza)
 
-// Middleware pre('save') - Atualiza updatedAt e calcula estoque total
+// Middleware pre('save') - Atualiza updatedAt, calcula estoque total e sincroniza contasBling
 produtoSchema.pre('save', function (next) {
   this.updatedAt = new Date();
   
-  // Calcular estoque total a partir de estoquePorConta
+  // Calcular estoque total e sincronizar contasBling a partir de estoquePorConta
   if (this.estoquePorConta && this.estoquePorConta instanceof Map) {
     let total = 0;
-    for (const quantidade of this.estoquePorConta.values()) {
-      if (typeof quantidade === 'number' && !isNaN(quantidade)) {
+    const contas = [];
+    for (const [contaId, quantidade] of this.estoquePorConta.entries()) {
+      if (contaId && typeof quantidade === 'number' && !isNaN(quantidade)) {
         total += quantidade;
+        contas.push(contaId);
       }
     }
     this.estoque = total;
+    this.contasBling = [...new Set(contas)]; // Remove duplicatas
   } else if (this.estoquePorConta && typeof this.estoquePorConta === 'object') {
     // Caso estoquePorConta seja um objeto simples (não Map)
     let total = 0;
-    for (const quantidade of Object.values(this.estoquePorConta)) {
-      if (typeof quantidade === 'number' && !isNaN(quantidade)) {
+    const contas = [];
+    for (const [contaId, quantidade] of Object.entries(this.estoquePorConta)) {
+      if (contaId && typeof quantidade === 'number' && !isNaN(quantidade)) {
         total += quantidade;
+        contas.push(contaId);
       }
     }
     this.estoque = total;
+    this.contasBling = [...new Set(contas)]; // Remove duplicatas
   }
   
   next();
 });
 
-// Middleware pre('findOneAndUpdate') - Atualiza updatedAt e recalcula estoque
+// Middleware pre('findOneAndUpdate') - Atualiza updatedAt, recalcula estoque e sincroniza contasBling
 produtoSchema.pre('findOneAndUpdate', function (next) {
   const update = this.getUpdate();
   const updatePayload = update.$set || update;
   
   updatePayload.updatedAt = new Date();
   
-  // Se estoquePorConta foi atualizado, recalcular estoque
+  // Se estoquePorConta foi atualizado, recalcular estoque e sincronizar contasBling
   if (updatePayload.estoquePorConta) {
     let total = 0;
+    const contas = [];
     const estoquePorConta = updatePayload.estoquePorConta;
     
     if (estoquePorConta instanceof Map) {
-      for (const quantidade of estoquePorConta.values()) {
-        if (typeof quantidade === 'number' && !isNaN(quantidade)) {
+      for (const [contaId, quantidade] of estoquePorConta.entries()) {
+        if (contaId && typeof quantidade === 'number' && !isNaN(quantidade)) {
           total += quantidade;
+          contas.push(contaId);
         }
       }
     } else if (typeof estoquePorConta === 'object') {
-      for (const quantidade of Object.values(estoquePorConta)) {
-        if (typeof quantidade === 'number' && !isNaN(quantidade)) {
+      for (const [contaId, quantidade] of Object.entries(estoquePorConta)) {
+        if (contaId && typeof quantidade === 'number' && !isNaN(quantidade)) {
           total += quantidade;
+          contas.push(contaId);
         }
       }
     }
     
     updatePayload.estoque = total;
+    updatePayload.contasBling = [...new Set(contas)]; // Remove duplicatas
   }
   
   next();
@@ -125,15 +141,18 @@ produtoSchema.methods.atualizarEstoqueUnificado = function (estoquePorConta) {
     this.estoquePorConta = estoquePorConta;
   }
   
-  // Calcular estoque total
+  // Calcular estoque total e sincronizar contasBling
   let total = 0;
-  for (const quantidade of this.estoquePorConta.values()) {
-    if (typeof quantidade === 'number' && !isNaN(quantidade)) {
+  const contas = [];
+  for (const [contaId, quantidade] of this.estoquePorConta.entries()) {
+    if (contaId && typeof quantidade === 'number' && !isNaN(quantidade)) {
       total += quantidade;
+      contas.push(contaId);
     }
   }
   
   this.estoque = total;
+  this.contasBling = [...new Set(contas)]; // Remove duplicatas
   this.ultimaSincronizacao = new Date();
   
   return this;

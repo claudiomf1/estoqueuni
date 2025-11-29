@@ -12,6 +12,8 @@ const controller = new ProdutoController();
  */
 
 router.get('/', validarTenantId, controller.listarProdutos.bind(controller));
+router.get('/verificacao', validarTenantId, controller.verificarProdutos.bind(controller));
+router.post('/importar', validarTenantId, controller.importarProdutos.bind(controller));
 router.get('/:sku', validarTenantId, controller.obterProduto.bind(controller));
 
 export default router;

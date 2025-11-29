@@ -9,23 +9,88 @@ class BlingService {
   constructor() {
     this.clientId = process.env.BLING_CLIENT_ID;
     this.clientSecret = process.env.BLING_CLIENT_SECRET;
-    
-    // Redirect URI: detecta automaticamente o ambiente
-    // URLs devem estar cadastradas no aplicativo do Bling:
-    // - Produção: https://estoqueuni.com.br/bling/callback
-    // - Desenvolvimento: http://localhost:5174/bling/callback
-    if (process.env.BLING_REDIRECT_URI) {
-      // Se definido explicitamente no .env, usa esse
-      this.redirectUri = process.env.BLING_REDIRECT_URI;
-    } else if (process.env.NODE_ENV === 'production') {
-      // Produção
-      this.redirectUri = 'https://estoqueuni.com.br/bling/callback';
-    } else {
-      // Desenvolvimento (localhost)
-      this.redirectUri = 'http://localhost:5174/bling/callback';
-    }
-    
+    this.redirectUri = this.resolverRedirectPadrao();
     this.apiUrl = 'https://www.bling.com.br/Api/v3';
+  }
+
+  /**
+   * Resolve o redirect padrão considerando variáveis de ambiente e fallbacks
+   * @returns {string}
+   */
+  resolverRedirectPadrao() {
+    const candidatos = [
+      process.env.BLING_REDIRECT_URI,
+      this.construirRedirectComBase(process.env.CORS_ORIGIN),
+      this.construirRedirectComBase(process.env.PUBLIC_URL),
+    ];
+
+    for (const candidato of candidatos) {
+      const normalizado = this.normalizarRedirectUri(candidato);
+      if (normalizado) return normalizado;
+    }
+
+    // Fallbacks finais caso nada esteja configurado
+    if (process.env.NODE_ENV === 'production') {
+      return 'https://estoqueuni.com.br/bling/callback';
+    }
+    return 'http://localhost:5174/bling/callback';
+  }
+
+  /**
+   * Constrói redirect padrão a partir de uma origem (ex.: CORS_ORIGIN)
+   * @param {string|undefined} base
+   * @returns {string|null}
+   */
+  construirRedirectComBase(base) {
+    if (!base || typeof base !== 'string') return null;
+    const limpo = base.trim();
+    if (!limpo) return null;
+    return `${limpo.replace(/\/$/, '')}/bling/callback`;
+  }
+
+  /**
+   * Normaliza redirect URIs para evitar divergências (www, barras extras, etc.)
+   * @param {string|undefined} uri
+   * @returns {string|null}
+   */
+  normalizarRedirectUri(uri) {
+    if (!uri || typeof uri !== 'string') return null;
+    const valor = uri.trim();
+    if (!valor) return null;
+
+    try {
+      const possuiProtocolo = /^[a-zA-Z]+:\/\//.test(valor);
+      const valorComProtocolo = possuiProtocolo ? valor : `https://${valor.replace(/^\/+/, '')}`;
+      const urlObj = new URL(valorComProtocolo);
+
+      if (urlObj.hostname === 'www.estoqueuni.com.br') {
+        urlObj.hostname = 'estoqueuni.com.br';
+      }
+
+      if (urlObj.hostname === 'estoqueuni.com.br') {
+        urlObj.protocol = 'https:';
+        urlObj.pathname = '/bling/callback';
+      }
+
+      if (urlObj.pathname.endsWith('/bling/callback/')) {
+        urlObj.pathname = '/bling/callback';
+      }
+
+      urlObj.search = '';
+      urlObj.hash = '';
+
+      return urlObj.toString().replace(/\/$/, '');
+    } catch (error) {
+      console.warn(
+        `[BLING-SERVICE] Redirect URI inválido recebido (${valor}):`,
+        error.message
+      );
+      return null;
+    }
+  }
+
+  obterRedirectPadrao() {
+    return this.redirectUri;
   }
 
   // ===== OAUTH METHODS =====
@@ -38,14 +103,20 @@ class BlingService {
    * @returns {Promise<{clientId: string, clientSecret: string, redirectUri: string}>}
    */
   async obterCredenciais(tenantId, blingAccountId) {
+    let redirectPersonalizado = null;
+
     if (tenantId && blingAccountId) {
       try {
         const config = await BlingConfig.findOne({ tenantId, blingAccountId }).lean();
+        if (config) {
+          redirectPersonalizado = this.normalizarRedirectUri(config.bling_redirect_uri);
+        }
+
         if (config && config.bling_client_id && config.bling_client_secret) {
           return {
             clientId: config.bling_client_id,
             clientSecret: config.bling_client_secret,
-            redirectUri: config.bling_redirect_uri || this.redirectUri,
+            redirectUri: redirectPersonalizado || this.redirectUri,
           };
         }
       } catch (error) {
@@ -60,7 +131,7 @@ class BlingService {
     return {
       clientId: this.clientId,
       clientSecret: this.clientSecret,
-      redirectUri: this.redirectUri,
+      redirectUri: redirectPersonalizado || this.redirectUri,
     };
   }
 

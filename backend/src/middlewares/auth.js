@@ -30,6 +30,7 @@ export const authenticate = async (req, res, next) => {
     req.tenantId = decoded.tenantId;
     req.accountType = decoded.accountType;
     req.rota_base = decoded.rota_base;
+    req.nivel_acesso = decoded.nivel_acesso;
 
     next();
   } catch (error) {

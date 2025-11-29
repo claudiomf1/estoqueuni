@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 /**
  * Model de Tenant para o EstoqueUni
- * Collection: estoqueuni_tenants
+ * Collection: tenants-estoqueuni
  */
 const tenantSchema = new mongoose.Schema(
   {
@@ -26,6 +26,10 @@ const tenantSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    nivel_acesso: {
+      type: String,
+      default: 'Administrador',
+    },
     assinatura: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'estoqueuni_assinaturas',
@@ -42,8 +46,8 @@ tenantSchema.index({ usuario: 1, rota_base: 1 });
 tenantSchema.index({ email: 1, rota_base: 1 });
 
 const Tenant =
-  mongoose.models.estoqueuni_tenants ||
-  mongoose.model('estoqueuni_tenants', tenantSchema, 'estoqueuni_tenants');
+  mongoose.models['tenants-estoqueuni'] ||
+  mongoose.model('tenants-estoqueuni', tenantSchema, 'tenants-estoqueuni');
 
 export default Tenant;
 

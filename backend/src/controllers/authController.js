@@ -17,12 +17,19 @@ const buildUserPayload = (doc, { rota_base }) => {
   const tenantId =
     doc?.tenantId || doc?.tenant_id || doc?._id?.toString() || null;
 
+  // Garantir que nivel_acesso seja lido corretamente
+  const nivelAcessoRaw = doc?.nivel_acesso;
+  const nivelAcesso = nivelAcessoRaw ? String(nivelAcessoRaw).trim() : 'Administrador';
+  
+  console.log('[buildUserPayload] nivelAcessoRaw:', nivelAcessoRaw);
+  console.log('[buildUserPayload] nivelAcesso processado:', nivelAcesso);
+
   return {
     tenantId,
     id_nivel_acesso:
       doc?.id_nivel_acesso ||
-      (doc?.nivel_acesso?.toLowerCase().includes('owner') ? 'owner' : 'user'),
-    nivel_acesso: doc?.nivel_acesso || 'Administrador',
+      (nivelAcesso.toLowerCase().includes('owner') ? 'owner' : 'user'),
+    nivel_acesso: nivelAcesso,
     nome_usuario: doc?.nome_usuario || doc?.usuario || doc?.nome || '',
     email: doc?.email || '',
     acessoModulos: doc?.acessoModulos || doc?.modulos || [],
@@ -47,23 +54,31 @@ const setSessionCookie = (res, token) => {
 const loadUserByUsername = async (username, rota_base) => {
   const isEmail = username.includes('@');
 
-  const userQuery = isEmail
-    ? { email: username, rota_base }
-    : { nome_usuario: username, rota_base };
-
-  const usuarioDoc = await Usuario.findOne(userQuery).lean();
-  if (usuarioDoc) {
-    return { doc: usuarioDoc, accountType: 'usuario' };
-  }
-
+  // PRIORIDADE: Buscar primeiro no Tenant (tenants-estoqueuni)
+  // porque o login do painel do presidente usa o campo 'usuario' do tenant
   const tenantQuery = isEmail
     ? { email: username, rota_base }
     : { usuario: username, rota_base };
+  console.log('[findUserByUsername] Buscando tenant PRIMEIRO com query:', JSON.stringify(tenantQuery, null, 2));
   const tenantDoc = await Tenant.findOne(tenantQuery).lean();
   if (tenantDoc) {
+    console.log('[findUserByUsername] Tenant encontrado. nivel_acesso:', tenantDoc.nivel_acesso);
+    console.log('[findUserByUsername] Tenant completo:', JSON.stringify(tenantDoc, null, 2));
     return { doc: tenantDoc, accountType: 'tenant' };
   }
 
+  // Se não encontrou no tenant, buscar no Usuario
+  const userQuery = isEmail
+    ? { email: username, rota_base }
+    : { nome_usuario: username, rota_base };
+  console.log('[findUserByUsername] Tenant não encontrado. Buscando usuario com query:', JSON.stringify(userQuery, null, 2));
+  const usuarioDoc = await Usuario.findOne(userQuery).lean();
+  if (usuarioDoc) {
+    console.log('[findUserByUsername] Usuario encontrado. nivel_acesso:', usuarioDoc.nivel_acesso);
+    return { doc: usuarioDoc, accountType: 'usuario' };
+  }
+
+  console.log('[findUserByUsername] Nenhum documento encontrado para:', username);
   return null;
 };
 
@@ -110,12 +125,19 @@ export async function loginHandler(req, res) {
         .json({ success: false, message: 'Usuário ou senha inválidos.' });
     }
 
+    console.log('[login] Documento completo do banco:', JSON.stringify(doc, null, 2));
+    console.log('[login] doc.nivel_acesso (raw):', doc?.nivel_acesso);
+    console.log('[login] Tipo de doc.nivel_acesso:', typeof doc?.nivel_acesso);
+    console.log('[login] accountType:', accountType);
+    
     const userPayload = buildUserPayload(doc, { rota_base });
+    console.log('[login] userPayload.nivel_acesso:', userPayload.nivel_acesso);
     const tokenPayload = {
       userId: doc?._id?.toString(),
       tenantId: userPayload.tenantId,
       rota_base: userPayload.rota_base,
       accountType,
+      nivel_acesso: userPayload.nivel_acesso,
     };
 
     const token = jwt.sign(tokenPayload, getAuthSecret(), {
@@ -129,6 +151,7 @@ export async function loginHandler(req, res) {
       user: userPayload,
       userName: userPayload.nome_usuario,
       email: userPayload.email,
+      nivel_acesso: userPayload.nivel_acesso,
     });
   } catch (error) {
     console.error('[login] Falha na autenticação:', error);
@@ -206,6 +229,7 @@ export async function cadastroHandler(req, res) {
       senha: senhaHash,
       rota_base,
       tipoLocatario: 'Pessoa Jurídica',
+      nivel_acesso: 'Administrador', // Padrão, pode ser alterado manualmente para 'owner'
     });
 
     await novoTenant.save();
@@ -266,6 +290,7 @@ export async function verifyTokenHandler(req, res) {
       userName: userPayload.nome_usuario,
       email: userPayload.email,
       tenantId: userPayload.tenantId || tenantId,
+      nivel_acesso: userPayload.nivel_acesso || decoded.nivel_acesso,
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {

@@ -127,12 +127,25 @@ class BlingMultiAccountController {
     try {
       const tenantId = req.tenantId || req.body.tenantId;
       const { accountName, bling_client_id, bling_client_secret, bling_redirect_uri } = req.body;
+      let redirectNormalizado;
 
       if (!tenantId) {
         return res.status(400).json({
           success: false,
           error: 'tenantId é obrigatório'
         });
+      }
+
+      if (bling_redirect_uri !== undefined) {
+        redirectNormalizado = blingService.normalizarRedirectUri(bling_redirect_uri);
+        if (!redirectNormalizado) {
+          return res.status(400).json({
+            success: false,
+            error:
+              'Redirect URI inválido. Use https://estoqueuni.com.br/bling/callback (sem www) ou deixe vazio para aplicar o padrão.',
+            redirectPadrao: blingService.obterRedirectPadrao()
+          });
+        }
       }
 
       // Gerar blingAccountId único
@@ -148,7 +161,7 @@ class BlingMultiAccountController {
         is_active: false,
         bling_client_id: bling_client_id || undefined,
         bling_client_secret: bling_client_secret || undefined,
-        bling_redirect_uri: bling_redirect_uri || undefined
+        bling_redirect_uri: redirectNormalizado || undefined
       });
 
       await novaConta.save();
@@ -442,7 +455,18 @@ class BlingMultiAccountController {
       if (store_name !== undefined) updateData.store_name = store_name;
       if (bling_client_id !== undefined) updateData.bling_client_id = bling_client_id;
       if (bling_client_secret !== undefined) updateData.bling_client_secret = bling_client_secret;
-      if (bling_redirect_uri !== undefined) updateData.bling_redirect_uri = bling_redirect_uri;
+      if (bling_redirect_uri !== undefined) {
+        const redirectNormalizado = blingService.normalizarRedirectUri(bling_redirect_uri);
+        if (!redirectNormalizado) {
+          return res.status(400).json({
+            success: false,
+            error:
+              'Redirect URI inválido. Utilize exatamente https://estoqueuni.com.br/bling/callback (sem www) ou deixe vazio para usar o padrão.',
+            redirectPadrao: blingService.obterRedirectPadrao()
+          });
+        }
+        updateData.bling_redirect_uri = redirectNormalizado;
+      }
 
       if (Object.keys(updateData).length === 0) {
         return res.status(400).json({
