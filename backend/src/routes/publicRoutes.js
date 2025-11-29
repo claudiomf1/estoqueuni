@@ -34,6 +34,7 @@ router.get('/landing-config/logo', async (req, res) => {
       success: true,
       data: {
         logoUrl: config.logoUrl,
+        bannerUrl: config.bannerUrl || null,
       },
     });
   } catch (error) {
@@ -41,6 +42,52 @@ router.get('/landing-config/logo', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Erro ao obter logo',
+    });
+  }
+});
+
+/**
+ * Rota pública para obter configuração completa da landing page (logo e banner)
+ * GET /api/public/landing-config
+ */
+router.get('/landing-config', async (req, res) => {
+  try {
+    console.log('[publicRoutes] Buscando configuração completa (logo + banner)...');
+    
+    const config = await LandingPageConfig.findOne({ 
+      tenantId: 'estoqueuni'
+    }).lean();
+
+    if (!config) {
+      console.log('[publicRoutes] Configuração não encontrada para tenantId: estoqueuni');
+      return res.json({
+        success: true,
+        data: {
+          logoUrl: null,
+          bannerUrl: null,
+        },
+      });
+    }
+
+    console.log('[publicRoutes] Configuração encontrada:', {
+      hasLogo: !!config.logoUrl,
+      hasBanner: !!config.bannerUrl,
+      logoUrl: config.logoUrl,
+      bannerUrl: config.bannerUrl
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        logoUrl: config.logoUrl || null,
+        bannerUrl: config.bannerUrl || null,
+      },
+    });
+  } catch (error) {
+    console.error('[publicRoutes] Erro ao obter configuração:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao obter configuração',
     });
   }
 });

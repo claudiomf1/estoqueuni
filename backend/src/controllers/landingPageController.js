@@ -130,6 +130,8 @@ export async function getLandingConfig(req, res) {
         data: {
           logoUrl: null,
           logoGcsPath: null,
+          bannerUrl: null,
+          bannerGcsPath: null,
         },
       });
     }
@@ -139,6 +141,8 @@ export async function getLandingConfig(req, res) {
       data: {
         logoUrl: config.logoUrl || null,
         logoGcsPath: config.logoGcsPath || null,
+        bannerUrl: config.bannerUrl || null,
+        bannerGcsPath: config.bannerGcsPath || null,
       },
     });
   } catch (error) {
@@ -319,6 +323,181 @@ export async function deleteLogo(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Erro ao deletar logo',
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Faz upload do banner da página de login
+ * POST /api/painelpresidente/landing-config/banner
+ */
+export async function uploadBanner(req, res) {
+  try {
+    const tenantId = 'estoqueuni';
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nenhum arquivo foi enviado',
+      });
+    }
+
+    // Validar tipo de arquivo
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(req.file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tipo de arquivo inválido. Permitidos: JPEG, PNG, WebP',
+      });
+    }
+
+    let processedFile;
+    try {
+      // Para banner, otimizar com limite maior (2MB)
+      processedFile = await optimizeRasterImage(req.file.buffer, {
+        maxBytes: 2 * 1024 * 1024,
+        originalName: req.file.originalname,
+        qualityStart: 75,
+        minQuality: 40
+      });
+
+      console.log(
+        `[landingPageController] Banner recebido: original=${req.file.size} bytes, otimizado=${processedFile.buffer.length} bytes`
+      );
+    } catch (optimizationError) {
+      console.error('[landingPageController] Falha ao otimizar banner:', optimizationError);
+      return res.status(400).json({
+        success: false,
+        message:
+          optimizationError.code === 'LOGO_TOO_LARGE_AFTER_OPTIMIZE'
+            ? 'Não foi possível reduzir o banner automaticamente para menos de 2MB. Tente uma imagem menor.'
+            : 'Falha ao otimizar o banner enviado',
+        error: optimizationError.message,
+      });
+    }
+
+    // Buscar ou criar a configuração
+    const config = await findOrCreateConfig(tenantId);
+
+    // Se já existe um banner, deletar o antigo do GCS
+    if (config.bannerGcsPath) {
+      try {
+        await storageService.deleteFileFromGcs(config.bannerGcsPath);
+      } catch (deleteError) {
+        console.warn('[landingPageController] Erro ao deletar banner antigo (continuando):', deleteError);
+      }
+    }
+
+    // Upload para o Google Cloud Storage
+    let publicUrl, gcsPath;
+    try {
+      const uploadResult = await storageService.uploadBufferToGcs({
+        buffer: processedFile.buffer,
+        originalName: processedFile.originalName,
+        destinationPrefix: `estoqueuni/banners/${tenantId}`,
+        contentType: processedFile.contentType,
+      });
+      publicUrl = uploadResult.publicUrl;
+      gcsPath = uploadResult.gcsPath;
+    } catch (uploadError) {
+      console.error('[landingPageController] Erro ao fazer upload do banner para GCS:', uploadError);
+      
+      let errorMessage = 'Erro ao fazer upload do banner';
+      if (uploadError.message?.includes('GCS_BUCKET_NAME')) {
+        errorMessage = 'Configuração do Google Cloud Storage não encontrada. Entre em contato com o administrador.';
+      } else if (uploadError.message?.includes('Acesso negado') || uploadError.message?.includes('403')) {
+        errorMessage = 'Acesso negado ao armazenamento. Verifique as credenciais.';
+      } else if (uploadError.message?.includes('não existe') || uploadError.message?.includes('404')) {
+        errorMessage = 'Bucket de armazenamento não encontrado. Verifique a configuração.';
+      } else {
+        errorMessage = uploadError.message || 'Erro ao fazer upload do banner para o armazenamento.';
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: errorMessage,
+        error: uploadError.message,
+      });
+    }
+
+    // Atualizar configuração
+    try {
+      config.bannerUrl = publicUrl;
+      config.bannerGcsPath = gcsPath;
+      await config.save();
+      console.log('[landingPageController] Banner salvo com sucesso:', {
+        tenantId: config.tenantId,
+        bannerUrl: config.bannerUrl,
+        bannerGcsPath: config.bannerGcsPath
+      });
+    } catch (saveError) {
+      console.error('[landingPageController] Erro ao salvar configuração do banner:', saveError);
+      try {
+        await storageService.deleteFileFromGcs(gcsPath);
+      } catch (cleanupError) {
+        console.error('[landingPageController] Erro ao limpar arquivo após falha ao salvar:', cleanupError);
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao salvar configuração do banner',
+        error: saveError.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Banner enviado com sucesso!',
+      data: {
+        bannerUrl: publicUrl,
+        bannerGcsPath: gcsPath,
+      },
+    });
+  } catch (error) {
+    console.error('[landingPageController] Erro ao fazer upload do banner:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao fazer upload do banner',
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Deleta o banner da página de login
+ * DELETE /api/painelpresidente/landing-config/banner
+ */
+export async function deleteBanner(req, res) {
+  try {
+    const tenantId = 'estoqueuni';
+
+    const config = await LandingPageConfig.findOne({ tenantId });
+
+    if (!config || !config.bannerGcsPath) {
+      return res.json({
+        success: true,
+        message: 'Banner não encontrado',
+      });
+    }
+
+    // Deletar do GCS
+    await storageService.deleteFileFromGcs(config.bannerGcsPath);
+
+    // Remover da configuração
+    config.bannerUrl = null;
+    config.bannerGcsPath = null;
+    await config.save();
+
+    return res.json({
+      success: true,
+      message: 'Banner deletado com sucesso!',
+    });
+  } catch (error) {
+    console.error('[landingPageController] Erro ao deletar banner:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao deletar banner',
       error: error.message,
     });
   }
