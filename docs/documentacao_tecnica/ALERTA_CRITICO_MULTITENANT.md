@@ -392,3 +392,4 @@ async function migrarConfiguracoes() {
 **Status:** 🚨 **CRÍTICO - CORREÇÃO NECESSÁRIA ANTES DE PRODUÇÃO**
 
 
+

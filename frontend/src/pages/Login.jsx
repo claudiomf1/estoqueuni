@@ -18,12 +18,6 @@ export default function Login() {
     carregarBanner();
   }, []);
 
-  // Log quando bannerUrl mudar
-  useEffect(() => {
-    if (bannerUrl) {
-      console.log('[Login] bannerUrl atualizado no estado:', bannerUrl);
-    }
-  }, [bannerUrl]);
 
   const carregarBanner = async () => {
     try {
@@ -36,13 +30,7 @@ export default function Login() {
       
       const data = await response.json();
       
-      console.log('[Login] Banner config completo:', JSON.stringify(data, null, 2));
-      
       if (data.success) {
-        console.log('[Login] API retornou success=true');
-        console.log('[Login] data.data:', data.data);
-        console.log('[Login] data.data?.bannerUrl:', data.data?.bannerUrl);
-        
         if (data.data?.bannerUrl) {
           const rawUrl = data.data.bannerUrl.trim();
           
@@ -52,14 +40,10 @@ export default function Login() {
             ? rawUrl 
             : `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
           
-          console.log('[Login] ✅ Banner URL encontrado:', finalUrl);
           setBannerUrl(finalUrl);
         } else {
-          console.warn('[Login] ⚠️ Banner não encontrado nos dados. data.data:', data.data);
           setBannerUrl(null);
         }
-      } else {
-        console.error('[Login] ❌ API retornou success=false:', data);
       }
     } catch (error) {
       console.error('[Login] Erro ao carregar banner:', error);
@@ -90,14 +74,10 @@ export default function Login() {
       if (data.success) {
         setTenantId(data.user.tenantId);
         const nivelAcesso = data.nivel_acesso || data.user?.nivel_acesso || '';
-        console.log('[Login] nivel_acesso recebido:', nivelAcesso);
-        console.log('[Login] data completa:', data);
         if (setNivelAcesso) {
           setNivelAcesso(nivelAcesso);
         }
         login();
-        
-        console.log('[Login] Redirecionando para / (home)');
         navigate('/');
       } else {
         setErrorMessage(data.message || 'Usuário ou senha inválidos.');

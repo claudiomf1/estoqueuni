@@ -17,12 +17,6 @@ export default function PainelPresidente() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
   
-  // Estados para banner
-  const [bannerUrl, setBannerUrl] = useState(null);
-  const [bannerUploading, setBannerUploading] = useState(false);
-  const [selectedBannerFile, setSelectedBannerFile] = useState(null);
-  const [bannerPreview, setBannerPreview] = useState(null);
-  
   // Estados para o formulário de login
   const [loginData, setLoginData] = useState({ username: '', password: '' });
   const [loginLoading, setLoginLoading] = useState(false);
@@ -42,22 +36,15 @@ export default function PainelPresidente() {
       setLoading(true);
       setError(null);
 
-      // Sempre usa 'estoqueuni' para o logo da landing page (página pública)
-      const response = await fetch(`${API_BASE}/landing-config?tenantId=estoqueuni`, {
+      const response = await fetch(`${API_BASE}/landing-config?tenantId=${tenantId || 'estoqueuni'}`, {
         credentials: 'include',
       });
 
       const data = await response.json();
 
-      if (data.success) {
-        if (data.data?.logoUrl) {
-          setLogoUrl(data.data.logoUrl);
-          setPreview(data.data.logoUrl);
-        }
-        if (data.data?.bannerUrl) {
-          setBannerUrl(data.data.bannerUrl);
-          setBannerPreview(data.data.bannerUrl);
-        }
+      if (data.success && data.data?.logoUrl) {
+        setLogoUrl(data.data.logoUrl);
+        setPreview(data.data.logoUrl);
       }
     } catch (err) {
       console.error('Erro ao carregar logo:', err);
@@ -98,8 +85,7 @@ export default function PainelPresidente() {
 
       const formData = new FormData();
       formData.append('logo', selectedFile);
-      // Sempre usa 'estoqueuni' para o logo da landing page (página pública)
-      formData.append('tenantId', 'estoqueuni');
+      formData.append('tenantId', tenantId || 'estoqueuni');
 
       const response = await fetch(`${API_BASE}/landing-config/logo`, {
         method: 'POST',
@@ -134,9 +120,8 @@ export default function PainelPresidente() {
       setLoading(true);
       setError(null);
 
-      // Sempre usa 'estoqueuni' para o logo da landing page (página pública)
       const response = await fetch(
-        `${API_BASE}/landing-config/logo?tenantId=estoqueuni`,
+        `${API_BASE}/landing-config/logo?tenantId=${tenantId || 'estoqueuni'}`,
         {
           method: 'DELETE',
           credentials: 'include',
@@ -156,98 +141,6 @@ export default function PainelPresidente() {
     } catch (err) {
       console.error('Erro ao remover logo:', err);
       setError('Erro ao remover logo. Tente novamente.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBannerFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setSelectedBannerFile(file);
-      setError(null);
-      setSuccess(null);
-
-      // Criar preview
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBannerPreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleBannerUpload = async (e) => {
-    e.preventDefault();
-
-    if (!selectedBannerFile) {
-      setError('Selecione um arquivo para upload');
-      return;
-    }
-
-    try {
-      setBannerUploading(true);
-      setError(null);
-      setSuccess(null);
-
-      const formData = new FormData();
-      formData.append('banner', selectedBannerFile);
-      formData.append('tenantId', 'estoqueuni');
-
-      const response = await fetch(`${API_BASE}/landing-config/banner`, {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setBannerUrl(data.data.bannerUrl);
-        setBannerPreview(data.data.bannerUrl);
-        setSuccess('Banner enviado com sucesso!');
-        setSelectedBannerFile(null);
-      } else {
-        setError(data.message || 'Erro ao fazer upload do banner');
-      }
-    } catch (err) {
-      console.error('Erro ao fazer upload do banner:', err);
-      setError('Erro ao fazer upload do banner. Tente novamente.');
-    } finally {
-      setBannerUploading(false);
-    }
-  };
-
-  const handleBannerDelete = async () => {
-    if (!window.confirm('Tem certeza que deseja remover o banner?')) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch(
-        `${API_BASE}/landing-config/banner?tenantId=estoqueuni`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-        }
-      );
-
-      const data = await response.json();
-
-      if (data.success) {
-        setBannerUrl(null);
-        setBannerPreview(null);
-        setSelectedBannerFile(null);
-        setSuccess('Banner removido com sucesso!');
-      } else {
-        setError(data.message || 'Erro ao remover banner');
-      }
-    } catch (err) {
-      console.error('Erro ao remover banner:', err);
-      setError('Erro ao remover banner. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -514,109 +407,6 @@ export default function PainelPresidente() {
                       disabled={uploading || loading}
                     >
                       Remover Logo
-                    </Button>
-                  )}
-                </div>
-              </Form>
-            </>
-          )}
-        </Card.Body>
-      </Card>
-
-      <Card className="mb-4">
-        <Card.Header>
-          <Card.Title className="mb-0">Banner da Página de Login</Card.Title>
-        </Card.Header>
-        <Card.Body>
-          <h5 className="mb-3">Banner Decorativo</h5>
-          <p className="text-muted mb-4">
-            Faça upload de um banner decorativo que será exibido na página de login do EstoqueUni. 
-            O banner aparecerá como background na seção de marketing (lado esquerdo).
-            <br />
-            <strong>Formatos aceitos:</strong> JPEG, PNG, WebP
-            <br />
-            <strong>Tamanho recomendado:</strong> 1920x1080px ou maior (proporção 16:9)
-            <br />
-            <strong>Tamanho máximo:</strong> 2MB (será otimizado automaticamente)
-          </p>
-
-          {error && (
-            <Alert variant="danger" dismissible onClose={() => setError(null)}>
-              {error}
-            </Alert>
-          )}
-
-          {success && (
-            <Alert variant="success" dismissible onClose={() => setSuccess(null)}>
-              {success}
-            </Alert>
-          )}
-
-          {loading ? (
-            <div className="text-center py-4">
-              <Spinner animation="border" role="status" />
-            </div>
-          ) : (
-            <>
-              {bannerPreview && (
-                <div className="mb-4">
-                  <h6>Preview do Banner:</h6>
-                  <div className="banner-preview-container">
-                    <img
-                      src={bannerPreview}
-                      alt="Preview do banner"
-                      className="banner-preview"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <Form onSubmit={handleBannerUpload}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Selecionar Banner</Form.Label>
-                  <Form.Control
-                    type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp"
-                    onChange={handleBannerFileChange}
-                    disabled={bannerUploading}
-                  />
-                  <Form.Text className="text-muted">
-                    Formatos aceitos: JPEG, PNG, WebP. Tamanho máximo: 2MB. 
-                    Recomendado: 1920x1080px ou superior (16:9).
-                  </Form.Text>
-                </Form.Group>
-
-                <div className="d-flex gap-2">
-                  <Button
-                    variant="primary"
-                    type="submit"
-                    disabled={!selectedBannerFile || bannerUploading}
-                  >
-                    {bannerUploading ? (
-                      <>
-                        <Spinner
-                          as="span"
-                          animation="border"
-                          size="sm"
-                          role="status"
-                          aria-hidden="true"
-                          className="me-2"
-                        />
-                        Enviando...
-                      </>
-                    ) : (
-                      bannerUrl ? 'Atualizar Banner' : 'Enviar Banner'
-                    )}
-                  </Button>
-
-                  {bannerUrl && (
-                    <Button
-                      variant="danger"
-                      type="button"
-                      onClick={handleBannerDelete}
-                      disabled={bannerUploading || loading}
-                    >
-                      Remover Banner
                     </Button>
                   )}
                 </div>

@@ -5,8 +5,6 @@ import {
   getLandingConfig,
   uploadLogo,
   deleteLogo,
-  uploadBanner,
-  deleteBanner,
   upload,
 } from '../controllers/landingPageController.js';
 
@@ -20,8 +18,6 @@ router.use(checkOwner);
 router.get('/landing-config', getLandingConfig);
 router.post('/landing-config/logo', upload.single('logo'), uploadLogo);
 router.delete('/landing-config/logo', deleteLogo);
-router.post('/landing-config/banner', upload.single('banner'), uploadBanner);
-router.delete('/landing-config/banner', deleteBanner);
 
 export default router;
 

@@ -170,3 +170,4 @@ export default function StatusSincronizacao({ status, isLoading }) {
 }
 
 
+
