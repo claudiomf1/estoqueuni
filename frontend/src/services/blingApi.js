@@ -168,6 +168,31 @@ export const blingApi = {
   iniciarAutorizacao: (tenantId, blingAccountId) =>
     api.get('/auth/start', {
       params: { tenantId, blingAccountId }
+    }),
+
+  /**
+   * Lista depósitos de uma conta Bling
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @returns {Promise} Resposta com array de depósitos
+   */
+  listarDepositos: (tenantId, blingAccountId) =>
+    api.get('/depositos', {
+      params: { tenantId, blingAccountId }
+    }),
+
+  /**
+   * Cria um novo depósito no Bling
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @param {Object} dadosDeposito - { descricao, situacao?, desconsiderarSaldo? }
+   * @returns {Promise} Resposta com depósito criado
+   */
+  criarDeposito: (tenantId, blingAccountId, dadosDeposito) =>
+    api.post('/depositos', {
+      tenantId,
+      blingAccountId,
+      ...dadosDeposito
     })
 };
 

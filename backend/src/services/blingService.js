@@ -512,6 +512,121 @@ class BlingService {
       return null;
     }
   }
+
+  /**
+   * Lista depósitos do Bling
+   * @param {string} tenantId
+   * @param {string} blingAccountId
+   * @returns {Promise<Array>}
+   */
+  async getDepositos(tenantId, blingAccountId) {
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+    try {
+      const response = await axios.get(`${this.apiUrl}/depositos`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      return response.data?.data || [];
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      // Se o Bling indicar problema de autorização, força reautorização
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao buscar depósitos - Requer re-autorização'
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        throw err;
+      }
+
+      console.error(
+        '❌ Erro ao buscar depósitos do Bling:',
+        data || error.message
+      );
+      throw new Error('Falha ao buscar depósitos');
+    }
+  }
+
+  /**
+   * Cria um novo depósito no Bling
+   * @param {string} tenantId
+   * @param {string} blingAccountId
+   * @param {Object} dadosDeposito - { descricao, situacao, desconsiderarSaldo }
+   * @returns {Promise<Object>}
+   */
+  async criarDeposito(tenantId, blingAccountId, dadosDeposito) {
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+    try {
+      const payload = {
+        descricao: dadosDeposito.descricao,
+        situacao: dadosDeposito.situacao || 'A', // A = Ativo, I = Inativo
+        desconsiderarSaldo: dadosDeposito.desconsiderarSaldo || false
+      };
+
+      const response = await axios.post(
+        `${this.apiUrl}/depositos`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data?.data || response.data;
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      // Se o Bling indicar problema de autorização, força reautorização
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao criar depósito - Requer re-autorização'
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        throw err;
+      }
+
+      console.error(
+        '❌ Erro ao criar depósito no Bling:',
+        data || error.message
+      );
+      throw new Error(`Falha ao criar depósito: ${reason}`);
+    }
+  }
 }
 
 export default new BlingService();

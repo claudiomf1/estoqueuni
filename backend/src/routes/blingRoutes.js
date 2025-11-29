@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import BlingMultiAccountController from '../controllers/blingMultiAccountController.js';
+import BlingMultiAccountController from '../controllers/BlingMultiAccountController/BlingMultiAccountController.js';
 
 const router = Router();
 
@@ -28,6 +28,10 @@ router.post('/estoque/unificado', controller.sincronizarEstoqueUnificado.bind(co
 router.post('/estoque/produto', controller.sincronizarEstoqueProdutoUnico.bind(controller));
 // Rota com parâmetro :sku deve vir por último para evitar conflitos
 router.get('/estoque/:sku', controller.buscarEstoqueUnificado.bind(controller));
+
+// ===== GERENCIAMENTO DE DEPÓSITOS =====
+router.get('/depositos', controller.listarDepositos.bind(controller));
+router.post('/depositos', controller.criarDeposito.bind(controller));
 
 export default router;
 

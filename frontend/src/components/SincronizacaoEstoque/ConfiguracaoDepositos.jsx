@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, Alert, Spinner, Badge, Row, Col } from 'react-bootstrap';
-import { Save, Building, Plus, Trash } from 'react-bootstrap-icons';
-import { useQuery } from 'react-query';
+import { Card, Form, Button, Alert, Spinner, Badge, Row, Col, Modal } from 'react-bootstrap';
+import { Save, Building, Plus, Trash, CloudArrowDown, X } from 'react-bootstrap-icons';
+import { useQuery, useMutation } from 'react-query';
 import { sincronizacaoApi } from '../../services/sincronizacaoApi';
 import { blingApi } from '../../services/blingApi';
 
@@ -43,6 +43,9 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState(null);
   const [erro, setErro] = useState(null);
+  const [contaSelecionada, setContaSelecionada] = useState('');
+  const [mostrarModalCriar, setMostrarModalCriar] = useState(false);
+  const [novoDeposito, setNovoDeposito] = useState({ descricao: '', situacao: 'A' });
 
   // Buscar contas Bling para associar aos depósitos
   const { data: contasResponse } = useQuery(
@@ -56,6 +59,41 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
   );
 
   const contasBling = contasResponse || [];
+
+  // Buscar depósitos do Bling quando uma conta for selecionada
+  const { data: depositosBling, isLoading: carregandoDepositos, refetch: refetchDepositos } = useQuery(
+    ['bling-depositos', tenantId, contaSelecionada],
+    () => blingApi.listarDepositos(tenantId, contaSelecionada),
+    {
+      enabled: !!tenantId && !!contaSelecionada,
+      refetchOnWindowFocus: false,
+      select: (response) => response.data?.data || [],
+      onError: (error) => {
+        console.error('Erro ao buscar depósitos:', error);
+        if (error.status === 401) {
+          setErro('Reautorização necessária para acessar depósitos do Bling.');
+        }
+      }
+    }
+  );
+
+  // Mutation para criar depósito
+  const criarDepositoMutation = useMutation(
+    ({ blingAccountId, dadosDeposito }) => blingApi.criarDeposito(tenantId, blingAccountId, dadosDeposito),
+    {
+      onSuccess: () => {
+        setMensagem('Depósito criado com sucesso no Bling!');
+        setMostrarModalCriar(false);
+        setNovoDeposito({ descricao: '', situacao: 'A' });
+        refetchDepositos(); // Atualiza a lista de depósitos
+        setTimeout(() => setMensagem(null), 5000);
+      },
+      onError: (error) => {
+        setErro(error.mensagem || error.message || 'Erro ao criar depósito no Bling');
+        setTimeout(() => setErro(null), 7000);
+      }
+    }
+  );
 
   // Sincronizar estado quando config mudar
   useEffect(() => {
@@ -223,6 +261,48 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
     setErro(null);
   };
 
+  const handleAdicionarDepositoDaLista = (depositoBling) => {
+    // Verificar se já não está na lista
+    if (depositos.some(d => d.id === depositoBling.id.toString())) {
+      setErro('Este depósito já está na lista.');
+      setTimeout(() => setErro(null), 3000);
+      return;
+    }
+
+    // Adicionar depósito da lista do Bling
+    setDepositos([
+      ...depositos,
+      {
+        id: depositoBling.id.toString(),
+        nome: depositoBling.descricao || `Depósito ${depositoBling.id}`,
+        tipo: 'principal',
+        contaBlingId: contaSelecionada
+      }
+    ]);
+    setMensagem(`Depósito "${depositoBling.descricao}" adicionado com sucesso!`);
+    setTimeout(() => setMensagem(null), 3000);
+  };
+
+  const handleCriarDeposito = () => {
+    if (!novoDeposito.descricao || !novoDeposito.descricao.trim()) {
+      setErro('O nome do depósito é obrigatório.');
+      return;
+    }
+
+    if (!contaSelecionada) {
+      setErro('Selecione uma conta Bling primeiro.');
+      return;
+    }
+
+    criarDepositoMutation.mutate({
+      blingAccountId: contaSelecionada,
+      dadosDeposito: {
+        descricao: novoDeposito.descricao.trim(),
+        situacao: novoDeposito.situacao || 'A'
+      }
+    });
+  };
+
   return (
     <Card className="mb-4">
       <Card.Header>
@@ -244,9 +324,98 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
       </Card.Header>
       <Card.Body>
         <Form>
+          {/* Seção: Selecionar Conta e Gerenciar Depósitos do Bling */}
+          <div className="mb-4 p-3 border rounded bg-light">
+            <h6 className="mb-3">
+              <CloudArrowDown className="me-2" />
+              Gerenciar Depósitos do Bling
+            </h6>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Selecione uma Conta Bling</Form.Label>
+                  <Form.Select
+                    value={contaSelecionada}
+                    onChange={(e) => {
+                      setContaSelecionada(e.target.value);
+                      setErro(null);
+                    }}
+                    disabled={salvando}
+                  >
+                    <option value="">-- Selecione uma conta --</option>
+                    {contasBling
+                      .filter(conta => conta.isActive !== false && conta.is_active !== false)
+                      .map((conta) => (
+                        <option key={conta._id || conta.id} value={conta.blingAccountId || conta._id || conta.id}>
+                          {conta.accountName || conta.store_name || 'Conta sem nome'}
+                        </option>
+                      ))}
+                  </Form.Select>
+                  <Form.Text className="text-muted">
+                    Selecione uma conta para listar e gerenciar seus depósitos
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6} className="d-flex align-items-end">
+                <Button
+                  variant="outline-success"
+                  onClick={() => setMostrarModalCriar(true)}
+                  disabled={!contaSelecionada || salvando}
+                >
+                  <Plus className="me-1" />
+                  Criar Novo Depósito no Bling
+                </Button>
+              </Col>
+            </Row>
+
+            {/* Lista de Depósitos do Bling */}
+            {contaSelecionada && (
+              <div className="mt-3">
+                {carregandoDepositos ? (
+                  <div className="text-center py-3">
+                    <Spinner animation="border" size="sm" className="me-2" />
+                    <span>Carregando depósitos do Bling...</span>
+                  </div>
+                ) : depositosBling && depositosBling.length > 0 ? (
+                  <div>
+                    <Form.Label className="mb-2">
+                      <strong>Depósitos Disponíveis no Bling:</strong>
+                    </Form.Label>
+                    <div className="d-flex flex-wrap gap-2">
+                      {depositosBling.map((deposito) => {
+                        const jaAdicionado = depositos.some(d => d.id === deposito.id.toString());
+                        return (
+                          <Badge
+                            key={deposito.id}
+                            bg={jaAdicionado ? 'secondary' : 'info'}
+                            className="p-2 d-flex align-items-center gap-2"
+                            style={{ cursor: jaAdicionado ? 'not-allowed' : 'pointer' }}
+                            onClick={() => !jaAdicionado && handleAdicionarDepositoDaLista(deposito)}
+                            title={jaAdicionado ? 'Já adicionado' : 'Clique para adicionar'}
+                          >
+                            <span>{deposito.descricao || `Depósito ${deposito.id}`}</span>
+                            {!jaAdicionado && <Plus size={16} />}
+                            {jaAdicionado && <X size={16} />}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                    <Form.Text className="text-muted d-block mt-2">
+                      Clique em um depósito para adicioná-lo à configuração
+                    </Form.Text>
+                  </div>
+                ) : (
+                  <Alert variant="info" className="mb-0">
+                    Nenhum depósito encontrado nesta conta Bling.
+                  </Alert>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Lista de Depósitos */}
           <div className="mb-4">
-            <h6 className="mb-3">Depósitos Cadastrados</h6>
+            <h6 className="mb-3">Depósitos Cadastrados na Configuração</h6>
             {depositos.length === 0 ? (
               <Alert variant="info">
                 Nenhum depósito cadastrado. Clique em "Adicionar Depósito" para começar.
@@ -442,6 +611,78 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
           </Button>
         </div>
       </Card.Body>
+
+      {/* Modal para Criar Novo Depósito */}
+      <Modal show={mostrarModalCriar} onHide={() => setMostrarModalCriar(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <Plus className="me-2" />
+            Criar Novo Depósito no Bling
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label>Nome do Depósito *</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Ex: Depósito Principal SP"
+                value={novoDeposito.descricao}
+                onChange={(e) => setNovoDeposito({ ...novoDeposito, descricao: e.target.value })}
+                disabled={criarDepositoMutation.isLoading}
+              />
+              <Form.Text className="text-muted">
+                Nome que aparecerá no Bling
+              </Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Situação</Form.Label>
+              <Form.Select
+                value={novoDeposito.situacao}
+                onChange={(e) => setNovoDeposito({ ...novoDeposito, situacao: e.target.value })}
+                disabled={criarDepositoMutation.isLoading}
+              >
+                <option value="A">Ativo</option>
+                <option value="I">Inativo</option>
+              </Form.Select>
+            </Form.Group>
+            {criarDepositoMutation.isError && (
+              <Alert variant="danger" className="mt-3">
+                {criarDepositoMutation.error?.mensagem || criarDepositoMutation.error?.message || 'Erro ao criar depósito'}
+              </Alert>
+            )}
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setMostrarModalCriar(false);
+              setNovoDeposito({ descricao: '', situacao: 'A' });
+            }}
+            disabled={criarDepositoMutation.isLoading}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleCriarDeposito}
+            disabled={criarDepositoMutation.isLoading || !novoDeposito.descricao.trim()}
+          >
+            {criarDepositoMutation.isLoading ? (
+              <>
+                <Spinner as="span" animation="border" size="sm" className="me-2" />
+                Criando...
+              </>
+            ) : (
+              <>
+                <Plus className="me-1" />
+                Criar Depósito
+              </>
+            )}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </Card>
   );
 }
