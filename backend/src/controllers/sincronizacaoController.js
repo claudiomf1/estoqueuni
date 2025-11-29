@@ -1,5 +1,7 @@
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
 import EventoProcessado from '../models/EventoProcessado.js';
+import BlingConfig from '../models/BlingConfig.js';
+import sincronizadorEstoqueService from '../services/sincronizadorEstoqueService.js';
 
 /**
  * Controller para gerenciar sincronização de estoques
@@ -20,15 +22,8 @@ class SincronizacaoController {
         });
       }
 
-      const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
-
-      if (!config) {
-        return res.status(404).json({
-          success: false,
-          error: 'Configuração não encontrada',
-          message: 'Configuração não encontrada para este tenant'
-        });
-      }
+      // Buscar ou criar configuração (retorna configuração vazia se não existir)
+      const config = await ConfiguracaoSincronizacao.buscarOuCriar(tenantId);
 
       return res.json({
         success: true,
@@ -65,13 +60,25 @@ class SincronizacaoController {
       // Buscar ou criar configuração
       let config = await ConfiguracaoSincronizacao.buscarOuCriar(tenantId);
 
+      // Se não forneceu contasBling, buscar automaticamente do BlingConfig
+      if (contasBling === undefined) {
+        const contasExistentes = await BlingConfig.find({ 
+          tenantId,
+          is_active: { $ne: false }
+        }).lean();
+        
+        config.contasBling = contasExistentes.map(conta => ({
+          blingAccountId: conta.blingAccountId,
+          accountName: conta.accountName || conta.store_name || 'Conta Bling',
+          isActive: conta.is_active !== false
+        }));
+      } else if (contasBling !== undefined) {
+        config.contasBling = Array.isArray(contasBling) ? contasBling : [];
+      }
+
       // Atualizar campos fornecidos (arrays são substituídos, não mesclados)
       if (depositos !== undefined) {
         config.depositos = Array.isArray(depositos) ? depositos : [];
-      }
-
-      if (contasBling !== undefined) {
-        config.contasBling = Array.isArray(contasBling) ? contasBling : [];
       }
 
       if (regraSincronizacao !== undefined) {
@@ -201,22 +208,79 @@ class SincronizacaoController {
       }
 
       if (!config.isConfigurationComplete()) {
+        // Verificar especificamente o que está faltando
+        const problemas = [];
+        
+        if (!Array.isArray(config.contasBling) || config.contasBling.length === 0) {
+          problemas.push('Nenhuma conta Bling configurada');
+        } else {
+          const contasAtivas = config.contasBling.filter(c => c.isActive !== false);
+          if (contasAtivas.length === 0) {
+            problemas.push('Nenhuma conta Bling ativa');
+          }
+        }
+        
+        if (!Array.isArray(config.depositos) || config.depositos.length === 0) {
+          problemas.push('Nenhum depósito configurado');
+        }
+        
+        if (!config.regraSincronizacao) {
+          problemas.push('Regra de sincronização não configurada');
+        } else {
+          if (!Array.isArray(config.regraSincronizacao.depositosPrincipais) || 
+              config.regraSincronizacao.depositosPrincipais.length === 0) {
+            problemas.push('Nenhum depósito principal selecionado na regra de sincronização');
+          }
+          if (!Array.isArray(config.regraSincronizacao.depositosCompartilhados) || 
+              config.regraSincronizacao.depositosCompartilhados.length === 0) {
+            problemas.push('Nenhum depósito compartilhado selecionado na regra de sincronização');
+          }
+        }
+        
         return res.status(400).json({
           success: false,
           error: 'Configuração incompleta',
-          message: 'Configure todos os depósitos e contas Bling antes de sincronizar'
+          message: `Configure antes de sincronizar: ${problemas.join(', ')}`,
+          problemas
         });
       }
 
-      // TODO: Chamar serviço de sincronização quando estiver disponível
-      // Por enquanto, apenas atualiza estatísticas e última sincronização
+      const { produtoId, sku } = req.body;
+
+      // Se forneceu produtoId ou sku, sincroniza apenas esse produto
+      if (produtoId || sku) {
+        const idProduto = produtoId || sku;
+        try {
+          const resultado = await sincronizadorEstoqueService.sincronizarEstoque(
+            idProduto,
+            tenantId,
+            'manual'
+          );
+
+          return res.json({
+            success: true,
+            message: `Produto ${idProduto} sincronizado com sucesso!`,
+            data: resultado
+          });
+        } catch (error) {
+          console.error(`Erro ao sincronizar produto ${idProduto}:`, error);
+          return res.status(500).json({
+            success: false,
+            error: 'Erro ao sincronizar produto',
+            message: error.message
+          });
+        }
+      }
+
+      // Se não forneceu produto específico, apenas atualiza estatísticas
+      // (sincronização de todos os produtos será implementada depois)
       config.incrementarEstatistica('manual');
       config.ultimaSincronizacao = new Date();
       await config.save();
 
       return res.json({
         success: true,
-        message: 'Sincronização manual iniciada',
+        message: 'Sincronização manual iniciada. Use produtoId ou sku para sincronizar um produto específico.',
         data: {
           tenantId,
           iniciadoEm: new Date()

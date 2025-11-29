@@ -166,15 +166,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
     setSalvando(true);
 
     try {
-      // Usar endpoint de configuração geral
-      const response = await sincronizacaoApi.obterConfiguracao(tenantId);
-      let configAtual = response.data?.data || {};
-
-      // Atualizar configuração com novos dados
-      configAtual.depositos = depositos;
-      configAtual.regraSincronizacao = regraSincronizacao;
-
-      // Salvar configuração
+      // Salvar configuração diretamente (o backend cria se não existir)
       const responseSave = await sincronizacaoApi.salvarConfiguracao(tenantId, {
         depositos,
         regraSincronizacao
@@ -183,7 +175,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
       if (responseSave.data?.success !== false) {
         setMensagem('Configuração de depósitos salva com sucesso!');
         if (onConfigUpdate) {
-          onConfigUpdate(responseSave.data?.data || configAtual);
+          onConfigUpdate(responseSave.data?.data);
         }
         setTimeout(() => setMensagem(null), 5000);
       } else {
@@ -442,13 +434,15 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
                           <Form.Label>ID do Depósito (Bling)</Form.Label>
                           <Form.Control
                             type="text"
-                            placeholder="Ex: 14886873196"
+                            placeholder={deposito.tipo === 'compartilhado' ? 'Ex: 14886873196 (opcional para marketplaces)' : 'Ex: 14886873196'}
                             value={deposito.id}
                             onChange={(e) => handleDepositoChange(index, 'id', e.target.value)}
                             disabled={salvando}
                           />
                           <Form.Text className="text-muted">
-                            ID único do depósito no Bling
+                            {deposito.tipo === 'compartilhado' 
+                              ? 'ID único do depósito no Bling (opcional para marketplaces externos)' 
+                              : 'ID único do depósito no Bling'}
                           </Form.Text>
                         </Form.Group>
                       </Col>

@@ -123,6 +123,18 @@ export const sincronizacaoApi = {
       }
     }),
 
+  /**
+   * Sincroniza estoque manualmente (um produto específico ou todos)
+   * @param {string} tenantId - ID do tenant
+   * @param {string} produtoId - ID ou SKU do produto (opcional)
+   * @returns {Promise} Resposta com resultado da sincronização
+   */
+  sincronizarManual: (tenantId, produtoId = null) =>
+    api.post('/manual', {
+      tenantId,
+      ...(produtoId ? { produtoId, sku: produtoId } : {})
+    }),
+
 };
 
 export default sincronizacaoApi;

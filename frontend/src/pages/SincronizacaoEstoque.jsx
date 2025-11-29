@@ -14,6 +14,7 @@ import LogsMonitoramento from '../components/SincronizacaoEstoque/LogsMonitorame
 export default function SincronizacaoEstoque() {
   const { tenantId } = useTenant();
   const [configDepositos, setConfigDepositos] = useState(null);
+  const [pollingAtivo, setPollingAtivo] = useState(true);
 
   // Query para obter status geral
   const { data: statusResponse, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery(
@@ -21,7 +22,7 @@ export default function SincronizacaoEstoque() {
     () => sincronizacaoApi.obterStatus(tenantId),
     {
       enabled: !!tenantId,
-      refetchInterval: 30000, // Atualiza a cada 30 segundos
+      refetchInterval: pollingAtivo ? 30000 : false, // Atualiza a cada 30 segundos se ativo
       select: (response) => response.data?.data || response.data
     }
   );
@@ -67,6 +68,9 @@ export default function SincronizacaoEstoque() {
       <StatusSincronizacao
         status={status}
         isLoading={isLoadingStatus}
+        pollingAtivo={pollingAtivo}
+        onTogglePolling={() => setPollingAtivo(!pollingAtivo)}
+        onRefreshManual={refetchStatus}
       />
 
       {/* Configuração de Depósitos */}

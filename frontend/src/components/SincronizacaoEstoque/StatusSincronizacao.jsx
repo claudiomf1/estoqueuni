@@ -1,13 +1,46 @@
 import React from 'react';
-import { Card, Badge, Spinner, Row, Col } from 'react-bootstrap';
-import { CheckCircle, XCircle, Clock, Activity } from 'react-bootstrap-icons';
+import { Card, Badge, Spinner, Row, Col, Button } from 'react-bootstrap';
+import { CheckCircle, XCircle, Clock, Activity, PauseFill, PlayFill, ArrowClockwise } from 'react-bootstrap-icons';
 
-export default function StatusSincronizacao({ status, isLoading }) {
-  if (isLoading) {
+export default function StatusSincronizacao({ status, isLoading, pollingAtivo, onTogglePolling, onRefreshManual }) {
+  if (isLoading && !status) {
     return (
       <Card className="mb-4">
-        <Card.Header>
+        <Card.Header className="d-flex justify-content-between align-items-center">
           <h5 className="mb-0">Status da Sincronização</h5>
+          <div className="d-flex gap-2">
+            {onRefreshManual && (
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                onClick={onRefreshManual}
+                disabled={isLoading}
+                title="Atualizar agora"
+              >
+                <ArrowClockwise className={isLoading ? 'spinning' : ''} />
+              </Button>
+            )}
+            {onTogglePolling && (
+              <Button
+                variant={pollingAtivo ? 'warning' : 'success'}
+                size="sm"
+                onClick={onTogglePolling}
+                title={pollingAtivo ? 'Pausar atualização automática' : 'Retomar atualização automática'}
+              >
+                {pollingAtivo ? (
+                  <>
+                    <PauseFill className="me-1" />
+                    Pausar
+                  </>
+                ) : (
+                  <>
+                    <PlayFill className="me-1" />
+                    Retomar
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </Card.Header>
         <Card.Body className="text-center">
           <Spinner animation="border" className="me-2" />
@@ -43,8 +76,49 @@ export default function StatusSincronizacao({ status, isLoading }) {
 
   return (
     <Card className="mb-4">
-      <Card.Header>
-        <h5 className="mb-0">Status da Sincronização</h5>
+      <Card.Header className="d-flex justify-content-between align-items-center">
+        <div className="d-flex align-items-center gap-2">
+          <h5 className="mb-0">Status da Sincronização</h5>
+          {pollingAtivo === false && (
+            <Badge bg="secondary" className="ms-2">
+              <PauseFill size={12} className="me-1" />
+              Atualização pausada
+            </Badge>
+          )}
+        </div>
+        <div className="d-flex gap-2">
+          {onRefreshManual && (
+            <Button
+              variant="outline-secondary"
+              size="sm"
+              onClick={onRefreshManual}
+              disabled={isLoading}
+              title="Atualizar agora"
+            >
+              <ArrowClockwise className={isLoading ? 'spinning' : ''} />
+            </Button>
+          )}
+          {onTogglePolling && (
+            <Button
+              variant={pollingAtivo ? 'warning' : 'success'}
+              size="sm"
+              onClick={onTogglePolling}
+              title={pollingAtivo ? 'Pausar atualização automática' : 'Retomar atualização automática'}
+            >
+              {pollingAtivo ? (
+                <>
+                  <PauseFill className="me-1" />
+                  Pausar
+                </>
+              ) : (
+                <>
+                  <PlayFill className="me-1" />
+                  Retomar
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </Card.Header>
       <Card.Body>
         <Row>

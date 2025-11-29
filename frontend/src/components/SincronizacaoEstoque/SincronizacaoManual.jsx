@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Form, Button, Alert, Spinner, ProgressBar } from 'react-bootstrap';
 import { ArrowRepeat, Search } from 'react-bootstrap-icons';
-import { blingApi } from '../../services/blingApi';
+import { sincronizacaoApi } from '../../services/sincronizacaoApi';
 
 export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta }) {
   const [sku, setSku] = useState('');
@@ -18,17 +18,12 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
     setSincronizandoTodos(true);
 
     try {
-      const response = await blingApi.sincronizarEstoqueUnificado(tenantId);
-      
-      if (response.data?.success !== false) {
-        const totalProcessado = response.data?.totalProcessado || response.data?.processedCount || 0;
-        setProgresso(100);
-        setMensagem(`Sincronização concluída! ${totalProcessado} produto(s) processado(s).`);
-        if (onSincronizacaoCompleta) {
-          onSincronizacaoCompleta();
-        }
-      } else {
-        throw new Error(response.data?.message || 'Erro ao sincronizar');
+      // Por enquanto, sincronização de todos os produtos será implementada depois
+      // Por enquanto mostra mensagem informativa
+      setMensagem('Sincronização de todos os produtos será implementada em breve. Use a sincronização por produto específico.');
+      setProgresso(100);
+      if (onSincronizacaoCompleta) {
+        onSincronizacaoCompleta();
       }
     } catch (err) {
       setErro(err.mensagem || err.message || 'Erro ao sincronizar todos os produtos');
@@ -44,7 +39,7 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
 
   const handleSincronizarProduto = async () => {
     if (!sku || !sku.trim()) {
-      setErro('Por favor, informe o SKU do produto.');
+      setErro('Por favor, informe o SKU ou ID do produto.');
       return;
     }
 
@@ -54,11 +49,25 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
     setSincronizandoProduto(true);
 
     try {
-      const response = await blingApi.sincronizarEstoqueProduto(tenantId, sku.trim());
+      const response = await sincronizacaoApi.sincronizarManual(tenantId, sku.trim());
       
       if (response.data?.success !== false) {
         setProgresso(100);
-        setMensagem(`Produto ${sku} sincronizado com sucesso!`);
+        const resultado = response.data?.data || {};
+        const saldos = resultado.saldosArray || [];
+        const soma = resultado.soma || 0;
+        const compartilhadosAtualizados = resultado.compartilhadosAtualizados || {};
+        
+        let detalhes = `Soma: ${soma} unidades. `;
+        if (saldos.length > 0) {
+          detalhes += `Depósitos principais: ${saldos.map(s => `${s.nomeDeposito || s.depositoId}: ${s.valor}`).join(', ')}. `;
+        }
+        if (Object.keys(compartilhadosAtualizados).length > 0) {
+          const sucessos = Object.values(compartilhadosAtualizados).filter(c => c.sucesso).length;
+          detalhes += `Atualizados ${sucessos} depósito(s) compartilhado(s).`;
+        }
+        
+        setMensagem(`Produto ${sku} sincronizado com sucesso! ${detalhes}`);
         setSku('');
         if (onSincronizacaoCompleta) {
           onSincronizacaoCompleta();
@@ -74,7 +83,7 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
         setMensagem(null);
         setErro(null);
         setProgresso(0);
-      }, 5000);
+      }, 8000);
     }
   };
 
