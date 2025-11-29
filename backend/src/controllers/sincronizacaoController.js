@@ -264,6 +264,17 @@ class SincronizacaoController {
           });
         } catch (error) {
           console.error(`Erro ao sincronizar produto ${idProduto}:`, error);
+          
+          // Tratamento específico para produtos compostos
+          if (error.message && error.message.includes('produto composto')) {
+            return res.status(400).json({
+              success: false,
+              error: 'PRODUTO_COMPOSTO',
+              message: error.message,
+              codigoErro: 'PRODUTO_COMPOSTO_NAO_SUPORTADO'
+            });
+          }
+          
           return res.status(500).json({
             success: false,
             error: 'Erro ao sincronizar produto',

@@ -72,6 +72,14 @@ class BlingMultiAccountController {
   async criarDeposito(req, res) {
     return manipuladoresDepositos.criarDeposito(req, res);
   }
+
+  async verificarDeposito(req, res) {
+    return manipuladoresDepositos.verificarDeposito(req, res);
+  }
+
+  async deletarDeposito(req, res) {
+    return manipuladoresDepositos.deletarDeposito(req, res);
+  }
 }
 
 export default BlingMultiAccountController;

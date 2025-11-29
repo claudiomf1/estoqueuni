@@ -193,6 +193,18 @@ export const blingApi = {
       tenantId,
       blingAccountId,
       ...dadosDeposito
+    }),
+
+  /**
+   * Remove um depósito da configuração do EstoqueUni e tenta inativá-lo no Bling
+   * @param {string} tenantId - ID do tenant
+   * @param {string|null} blingAccountId - ID da conta Bling (necessário para tentar inativar no Bling)
+   * @param {string|number} depositoId - ID do depósito a ser removido
+   * @returns {Promise} Resposta de confirmação
+   */
+  deletarDeposito: (tenantId, blingAccountId, depositoId) =>
+    api.delete(`/depositos/${depositoId}`, {
+      params: { tenantId, ...(blingAccountId && { blingAccountId }) }
     })
 };
 

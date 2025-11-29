@@ -32,6 +32,8 @@ router.get('/estoque/:sku', controller.buscarEstoqueUnificado.bind(controller));
 // ===== GERENCIAMENTO DE DEPÓSITOS =====
 router.get('/depositos', controller.listarDepositos.bind(controller));
 router.post('/depositos', controller.criarDeposito.bind(controller));
+router.get('/depositos/verificar', controller.verificarDeposito.bind(controller));
+router.delete('/depositos/:depositoId', controller.deletarDeposito.bind(controller));
 
 export default router;
 

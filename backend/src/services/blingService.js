@@ -345,14 +345,30 @@ class BlingService {
    * @param {string} blingAccountId
    * @returns {Promise<Object|null>}
    */
-  async getProdutoPorSku(sku, tenantId, blingAccountId) {
+  /**
+   * Busca produto por SKU no Bling
+   * @param {string} sku - SKU do produto
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @param {boolean} incluirDetalhes - Se true, busca campos adicionais como formato, tipo, etc.
+   * @returns {Promise<Object|null>} Produto encontrado ou null
+   */
+  async getProdutoPorSku(sku, tenantId, blingAccountId, incluirDetalhes = false) {
     const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
     try {
+      // Campos básicos sempre incluídos
+      let campos = 'codigo,estoque,nome,id';
+      
+      // Se precisar de detalhes, incluir formato e tipo para detectar produtos compostos
+      if (incluirDetalhes) {
+        campos += ',formato,tipo,situacao';
+      }
+
       const response = await axios.get(`${this.apiUrl}/produtos`, {
         params: {
           codigo: sku,
-          campos: 'codigo,estoque,nome'
+          campos: campos
         },
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -372,6 +388,17 @@ class BlingService {
       );
       throw new Error('Falha ao buscar produto no Bling');
     }
+  }
+
+  /**
+   * Verifica se um produto é composto (formato "E" no Bling)
+   * @param {Object} produto - Objeto do produto do Bling
+   * @returns {boolean} True se for produto composto
+   */
+  isProdutoComposto(produto) {
+    // No Bling, produtos compostos têm formato "E" (Estoque)
+    // Produtos simples têm formato "S" (Simples) ou outros valores
+    return produto?.formato === 'E';
   }
 
   /**
@@ -519,18 +546,38 @@ class BlingService {
    * @param {string} blingAccountId
    * @returns {Promise<Array>}
    */
-  async getDepositos(tenantId, blingAccountId) {
+  async getDepositos(tenantId, blingAccountId, incluirInativos = false) {
     const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
     try {
+      const params = {};
+      // Se quiser incluir inativos, adicionar parâmetro (a API do Bling pode ter essa opção)
+      if (incluirInativos) {
+        params.situacao = 'A,I'; // Ativos e Inativos
+      }
+
       const response = await axios.get(`${this.apiUrl}/depositos`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
-        }
+        },
+        params
       });
 
-      return response.data?.data || [];
+      const depositos = response.data?.data || [];
+      
+      console.log(
+        `[BLING-SERVICE] 📋 Total de depósitos encontrados na conta ${blingAccountId}: ${depositos.length}`
+      );
+      
+      // Log detalhado dos depósitos para debug
+      depositos.forEach(dep => {
+        console.log(
+          `[BLING-SERVICE]   - ID: ${dep.id}, Descrição: ${dep.descricao || dep.nome}, Situação: ${dep.situacao || 'N/A'}`
+        );
+      });
+
+      return depositos;
     } catch (error) {
       const data = error.response?.data;
       const status = error.response?.status;
@@ -578,9 +625,14 @@ class BlingService {
     try {
       const payload = {
         descricao: dadosDeposito.descricao,
-        situacao: dadosDeposito.situacao || 'A', // A = Ativo, I = Inativo
+        situacao: dadosDeposito.situacao !== undefined ? dadosDeposito.situacao : 1, // 1 = Ativo, 0 = Inativo (formato da API Bling)
         desconsiderarSaldo: dadosDeposito.desconsiderarSaldo || false
       };
+
+      console.log(
+        `[BLING-SERVICE] 🔵 Criando depósito no Bling:`,
+        JSON.stringify(payload, null, 2)
+      );
 
       const response = await axios.post(
         `${this.apiUrl}/depositos`,
@@ -593,7 +645,40 @@ class BlingService {
         }
       );
 
-      return response.data?.data || response.data;
+      const depositoCriado = response.data?.data || response.data;
+      
+      console.log(
+        `[BLING-SERVICE] ✅ Depósito criado com sucesso no Bling:`,
+        JSON.stringify(depositoCriado, null, 2)
+      );
+
+      // Verificar se o depósito foi realmente criado listando todos os depósitos
+      try {
+        const todosDepositos = await this.getDepositos(tenantId, blingAccountId);
+        const depositoEncontrado = todosDepositos.find(
+          d => d.id === depositoCriado.id || 
+               d.id === depositoCriado.id?.toString() ||
+               (depositoCriado.descricao && d.descricao === depositoCriado.descricao)
+        );
+        
+        if (depositoEncontrado) {
+          console.log(
+            `[BLING-SERVICE] ✅ Confirmação: Depósito encontrado na listagem do Bling`,
+            `ID: ${depositoEncontrado.id}, Descrição: ${depositoEncontrado.descricao}, Situação: ${depositoEncontrado.situacao}`
+          );
+        } else {
+          console.warn(
+            `[BLING-SERVICE] ⚠️ Aviso: Depósito criado mas não encontrado na listagem imediata. Pode levar alguns segundos para aparecer.`
+          );
+        }
+      } catch (verificacaoError) {
+        console.warn(
+          `[BLING-SERVICE] ⚠️ Não foi possível verificar se o depósito aparece na listagem:`,
+          verificacaoError.message
+        );
+      }
+
+      return depositoCriado;
     } catch (error) {
       const data = error.response?.data;
       const status = error.response?.status;
@@ -625,6 +710,198 @@ class BlingService {
         data || error.message
       );
       throw new Error(`Falha ao criar depósito: ${reason}`);
+    }
+  }
+
+  /**
+   * Atualiza um depósito no Bling (para inativar, alterar nome, etc)
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @param {string|number} depositoId - ID do depósito a ser atualizado
+   * @param {Object} dadosAtualizacao - Dados para atualizar { descricao?, situacao?, desconsiderarSaldo? }
+   * @returns {Promise<Object>} Resposta da API do Bling
+   */
+  async atualizarDeposito(tenantId, blingAccountId, depositoId, dadosAtualizacao) {
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+    try {
+      const payload = {};
+      
+      // Incluir apenas campos que foram fornecidos
+      if (dadosAtualizacao.descricao !== undefined) {
+        payload.descricao = dadosAtualizacao.descricao;
+      }
+      if (dadosAtualizacao.situacao !== undefined) {
+        // A API do Bling usa: 1 = Ativo, 0 = Inativo
+        // Aceita tanto string ('I', 'A') quanto número (0, 1)
+        if (dadosAtualizacao.situacao === 'I' || dadosAtualizacao.situacao === 0 || dadosAtualizacao.situacao === '0') {
+          payload.situacao = 0; // Inativo
+        } else if (dadosAtualizacao.situacao === 'A' || dadosAtualizacao.situacao === 1 || dadosAtualizacao.situacao === '1') {
+          payload.situacao = 1; // Ativo
+        } else {
+          payload.situacao = dadosAtualizacao.situacao; // Usa o valor fornecido
+        }
+      }
+      if (dadosAtualizacao.desconsiderarSaldo !== undefined) {
+        payload.desconsiderarSaldo = dadosAtualizacao.desconsiderarSaldo;
+      }
+
+      // Tentar PUT primeiro (método padrão para atualização completa)
+      let response;
+      try {
+        response = await axios.put(
+          `${this.apiUrl}/depositos/${depositoId}`,
+          payload,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+      } catch (putError) {
+        // Se PUT não funcionar (405 Method Not Allowed), tentar PATCH
+        if (putError.response?.status === 405 || putError.response?.status === 404) {
+          response = await axios.patch(
+            `${this.apiUrl}/depositos/${depositoId}`,
+            payload,
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+        } else {
+          throw putError;
+        }
+      }
+
+      return response.data || { success: true };
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      // Se o Bling indicar problema de autorização, força reautorização
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao atualizar depósito - Requer re-autorização'
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        err.status = status;
+        throw err;
+      }
+
+      // Log detalhado do erro
+      console.error(
+        `[BLING-SERVICE] ❌ Erro ao atualizar depósito ${depositoId}:`,
+        JSON.stringify({
+          status,
+          statusText: error.response?.statusText,
+          data: data,
+          reason,
+          url: `${this.apiUrl}/depositos/${depositoId}`
+        }, null, 2)
+      );
+
+      // Não lançar erro fatal - apenas logar, pois pode não ser suportado
+      throw new Error(`Falha ao atualizar depósito: ${reason || error.message} (Status: ${status || 'N/A'})`);
+    }
+  }
+
+  /**
+   * Deleta um depósito no Bling
+   * NOTA: A API do Bling não permite deletar depósitos. 
+   * Este método tenta inativar o depósito e depois remove da configuração local.
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @param {string|number} depositoId - ID do depósito a ser deletado
+   * @returns {Promise<Object>} Resposta com resultado da operação
+   */
+  async deletarDeposito(tenantId, blingAccountId, depositoId) {
+    const resultado = {
+      sucesso: false,
+      inativado: false,
+      removidoDaConfig: false,
+      mensagem: '',
+      erro: null
+    };
+
+    if (!blingAccountId) {
+      // Se não tiver blingAccountId, apenas retorna resultado indicando que não pode inativar
+      resultado.erro = 'blingAccountId não fornecido - não é possível inativar no Bling';
+      resultado.sucesso = true; // Sucesso porque vamos remover da config mesmo assim
+      return resultado;
+    }
+
+    try {
+      // Tentar inativar o depósito primeiro
+      try {
+        await this.atualizarDeposito(tenantId, blingAccountId, depositoId, {
+          situacao: 0 // 0 = Inativo, 1 = Ativo (formato da API Bling)
+        });
+        
+        resultado.inativado = true;
+        resultado.sucesso = true;
+        resultado.mensagem = `Depósito ${depositoId} inativado com sucesso no Bling`;
+      } catch (inativacaoError) {
+        // Se não conseguir inativar, apenas logar mas não falhar completamente
+        console.warn(
+          `[BLING-SERVICE] ⚠️ Não foi possível inativar o depósito ${depositoId} via API:`,
+          inativacaoError.message
+        );
+        resultado.erro = `Não foi possível inativar via API: ${inativacaoError.message}`;
+        // Continua a execução para remover da configuração mesmo assim
+      }
+
+      // Sempre retorna sucesso porque vamos remover da configuração local mesmo que não consiga inativar
+      return resultado;
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      // Se o Bling indicar problema de autorização, força reautorização
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao inativar depósito - Requer re-autorização'
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        err.status = status;
+        throw err;
+      }
+
+      console.error('❌ Erro ao processar depósito:', data || error.message);
+      
+      // Não lançar erro - apenas retornar resultado indicando que não foi possível inativar
+      // mas ainda podemos remover da configuração local
+      resultado.erro = reason || error.message;
+      return resultado;
     }
   }
 }

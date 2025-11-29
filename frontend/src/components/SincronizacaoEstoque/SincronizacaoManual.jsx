@@ -58,25 +58,102 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
         const soma = resultado.soma || 0;
         const compartilhadosAtualizados = resultado.compartilhadosAtualizados || {};
         
-        let detalhes = `Soma: ${soma} unidades. `;
+        // Verificar se houve falhas na sincronização
+        const compartilhadosArray = Object.values(compartilhadosAtualizados);
+        const sucessos = compartilhadosArray.filter(c => c.sucesso);
+        const falhas = compartilhadosArray.filter(c => !c.sucesso);
+        
+        let detalhes = `Soma calculada: ${soma} unidades. `;
         if (saldos.length > 0) {
           detalhes += `Depósitos principais: ${saldos.map(s => `${s.nomeDeposito || s.depositoId}: ${s.valor}`).join(', ')}. `;
         }
-        if (Object.keys(compartilhadosAtualizados).length > 0) {
-          const sucessos = Object.values(compartilhadosAtualizados).filter(c => c.sucesso).length;
-          detalhes += `Atualizados ${sucessos} depósito(s) compartilhado(s).`;
+        
+        if (compartilhadosArray.length > 0) {
+          if (sucessos.length > 0) {
+            detalhes += `✅ ${sucessos.length} depósito(s) compartilhado(s) atualizado(s) com sucesso: ${sucessos.map(s => s.nomeDeposito || s.depositoId).join(', ')}. `;
+          }
+          
+          if (falhas.length > 0) {
+            detalhes += `❌ ${falhas.length} depósito(s) falharam: ${falhas.map(f => `${f.nomeDeposito || f.depositoId} (${f.erro || 'Erro desconhecido'})`).join(', ')}.`;
+            setErro(
+              <div>
+                <strong>⚠️ Alguns depósitos falharam ao atualizar</strong>
+                <ul className="mb-0 mt-2">
+                  {falhas.map((f, idx) => (
+                    <li key={idx}>
+                      <strong>{f.nomeDeposito || f.depositoId}:</strong> {f.erro || 'Erro desconhecido'}
+                    </li>
+                  ))}
+                </ul>
+                <small className="text-muted">Verifique os logs do servidor para mais detalhes.</small>
+              </div>
+            );
+          }
         }
         
-        setMensagem(`Produto ${sku} sincronizado com sucesso! ${detalhes}`);
+        if (falhas.length === 0) {
+          setMensagem(
+            <div>
+              <strong>✅ Produto {sku} sincronizado com sucesso!</strong>
+              <br />
+              <small>{detalhes}</small>
+            </div>
+          );
+        } else {
+          setMensagem(
+            <div>
+              <strong>⚠️ Sincronização parcial do produto {sku}</strong>
+              <br />
+              <small>{detalhes}</small>
+            </div>
+          );
+        }
+        
         setSku('');
         if (onSincronizacaoCompleta) {
           onSincronizacaoCompleta();
         }
       } else {
-        throw new Error(response.data?.message || 'Erro ao sincronizar produto');
+        // Verificar se é erro de produto composto
+        if (response.data?.codigoErro === 'PRODUTO_COMPOSTO_NAO_SUPORTADO' || 
+            response.data?.error === 'PRODUTO_COMPOSTO') {
+          setErro(
+            <div>
+              <strong>⚠️ Produto Composto Detectado</strong>
+              <br />
+              {response.data?.message || 'Este produto é um produto composto (com composição).'}
+              <br />
+              <small className="text-muted">
+                Produtos compostos não suportam sincronização de estoque via API do Bling. 
+                Use apenas produtos simples para sincronização.
+              </small>
+            </div>
+          );
+        } else {
+          throw new Error(response.data?.message || 'Erro ao sincronizar produto');
+        }
       }
     } catch (err) {
-      setErro(err.mensagem || err.message || `Erro ao sincronizar produto ${sku}`);
+      // Tratamento específico para produtos compostos
+      const errorData = err.response?.data;
+      if (errorData?.codigoErro === 'PRODUTO_COMPOSTO_NAO_SUPORTADO' || 
+          errorData?.error === 'PRODUTO_COMPOSTO' ||
+          (err.message && err.message.includes('produto composto'))) {
+        setErro(
+          <div>
+            <strong>⚠️ Produto Composto Detectado</strong>
+            <br />
+            {errorData?.message || err.message || 'Este produto é um produto composto (com composição).'}
+            <br />
+            <small className="text-muted">
+              Produtos compostos não suportam sincronização de estoque via API do Bling. 
+              Use apenas produtos simples para sincronização.
+            </small>
+          </div>
+        );
+      } else {
+        setErro(err.response?.data?.message || err.mensagem || err.message || `Erro ao sincronizar produto ${sku}`);
+      }
     } finally {
       setSincronizandoProduto(false);
       setTimeout(() => {
@@ -125,8 +202,12 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
           <div className="col-md-6 mb-3">
             <h6>Sincronizar Produto Específico</h6>
             <p className="text-muted small">
-              Sincroniza o estoque de um produto específico pelo SKU.
+              Sincroniza o estoque de um produto específico pelo SKU ou ID.
             </p>
+            <Alert variant="info" className="small mb-2">
+              <strong>ℹ️ Importante:</strong> Apenas produtos simples podem ser sincronizados. 
+              Produtos compostos (kits, combos) não são suportados.
+            </Alert>
             <Form.Group className="mb-2">
               <div className="input-group">
                 <Form.Control
@@ -175,7 +256,17 @@ export default function SincronizacaoManual({ tenantId, onSincronizacaoCompleta 
         )}
 
         {mensagem && (
-          <Alert variant="success" className="mt-3" dismissible onClose={() => setMensagem(null)}>
+          <Alert 
+            variant={
+              (typeof mensagem === 'string' && (mensagem.includes('❌') || mensagem.includes('⚠️'))) ||
+              (typeof mensagem === 'object' && mensagem?.props?.children?.toString().includes('⚠️'))
+                ? 'warning' 
+                : 'success'
+            } 
+            className="mt-3" 
+            dismissible 
+            onClose={() => setMensagem(null)}
+          >
             {mensagem}
           </Alert>
         )}

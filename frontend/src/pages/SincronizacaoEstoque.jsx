@@ -4,7 +4,7 @@ import { useTenant } from '../context/TenantContext';
 import { useQuery } from 'react-query';
 import { sincronizacaoApi } from '../services/sincronizacaoApi';
 import StatusSincronizacao from '../components/SincronizacaoEstoque/StatusSincronizacao';
-import ConfiguracaoDepositos from '../components/SincronizacaoEstoque/ConfiguracaoDepositos';
+import ConfiguracaoDepositos from '../components/SincronizacaoEstoque/ConfiguracaoDepositos/ConfiguracaoDepositos';
 import ConfiguracaoWebhook from '../components/SincronizacaoEstoque/ConfiguracaoWebhook';
 import ConfiguracaoCronjob from '../components/SincronizacaoEstoque/ConfiguracaoCronjob';
 import SincronizacaoManual from '../components/SincronizacaoEstoque/SincronizacaoManual';

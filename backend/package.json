@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "dev": "ESTOQUEUNI_PORT=5010 nodemon src/index.js",
+    "dev": "ESTOQUEUNI_PORT=5010 ESTOQUEUNI_BLING_DEBUG=true nodemon src/index.js",
     "start": "node src/index.js",
     "test": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "lint": "eslint .",
