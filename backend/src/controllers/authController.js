@@ -263,6 +263,34 @@ export async function cadastroHandler(req, res) {
 }
 
 /**
+ * Handler para obter token (para uso do backend-ai)
+ * POST /getToken
+ */
+export async function getTokenHandler(req, res) {
+  const token = req.cookies?.[COOKIE_NAME];
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Token não encontrado' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, getAuthSecret());
+    return res.json({
+      success: true,
+      token,
+      userId: decoded.userId,
+      tenantId: decoded.tenantId,
+    });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {
+      res.clearCookie(COOKIE_NAME, { path: '/' });
+      return res.status(401).json({ success: false, message: 'Token inválido ou expirado' });
+    }
+    console.error('[getToken] Erro ao obter token:', error);
+    return res.status(500).json({ success: false, message: 'Erro ao processar token' });
+  }
+}
+
+/**
  * Handler para verificar token
  * GET /api/auth/verificarToken
  */

@@ -13,6 +13,7 @@ import Produtos from './pages/Produtos';
 import SincronizacaoEstoque from './pages/SincronizacaoEstoque';
 import BlingCallback from './pages/BlingCallback';
 import PainelPresidente from './pages/PainelPresidente';
+import ChatWidget from './components/ChatWidget';
 
 // Criar instância do QueryClient
 const queryClient = new QueryClient({
@@ -118,6 +119,7 @@ function AppContent() {
       <div className={isAuthenticated ? 'main-content-with-fixed-navbar' : ''}>
         <AppRoutes />
       </div>
+      {isAuthenticated && <ChatWidget />}
     </>
   );
 }

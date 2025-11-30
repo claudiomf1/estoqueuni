@@ -141,40 +141,52 @@ eventoProcessadoSchema.statics.verificarSeProcessado = async function (chaveUnic
   return !!evento;
 };
 
-/**
- * Busca eventos processados por tenant e período
- * @param {string} tenantId - ID do tenant
- * @param {Date} dataInicio - Data de início
- * @param {Date} dataFim - Data de fim
- * @param {Object} options - Opções de paginação
- * @returns {Promise<Array>} Lista de eventos processados
- */
-eventoProcessadoSchema.statics.buscarPorPeriodo = async function (
-  tenantId,
-  dataInicio,
-  dataFim,
-  options = {}
-) {
-  const { limite = 100, pagina = 1, origem } = options;
-  const skip = (pagina - 1) * limite;
-
-  const query = {
+  /**
+   * Busca eventos processados por tenant e período
+   * @param {string} tenantId - ID do tenant
+   * @param {Date} dataInicio - Data de início
+   * @param {Date} dataFim - Data de fim
+   * @param {Object} options - Opções de paginação
+   * @returns {Promise<Array>} Lista de eventos processados
+   */
+  eventoProcessadoSchema.statics.buscarPorPeriodo = async function (
     tenantId,
-    processadoEm: {
-      $gte: dataInicio,
-      $lte: dataFim,
-    },
+    dataInicio,
+    dataFim,
+    options = {}
+  ) {
+    const { limite = 100, pagina = 1, origem } = options;
+    const skip = (pagina - 1) * limite;
+
+    const query = {
+      tenantId,
+      processadoEm: {
+        $gte: dataInicio,
+        $lte: dataFim,
+      },
+      // Excluir produtos compostos do histórico (não suportados)
+      $or: [
+        { erro: { $exists: false } },
+        { erro: null },
+        { 
+          erro: { 
+            $not: { 
+              $regex: /produto composto|PRODUTO_COMPOSTO|formato: E/i 
+            } 
+          }
+        }
+      ]
+    };
+
+    if (origem) {
+      query.origem = origem;
+    }
+
+    return await this.find(query)
+      .sort({ processadoEm: -1 })
+      .skip(skip)
+      .limit(limite);
   };
-
-  if (origem) {
-    query.origem = origem;
-  }
-
-  return await this.find(query)
-    .sort({ processadoEm: -1 })
-    .skip(skip)
-    .limit(limite);
-};
 
 const EventoProcessado = mongoose.model(
   'EventoProcessado',

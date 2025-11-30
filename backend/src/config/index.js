@@ -101,7 +101,16 @@ export const config = {
   env: process.env.NODE_ENV || 'development',
   mongodbUri: resolveMongoUri(),
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5174',
+    origin: (() => {
+      const defaultOrigins = ['http://localhost:5174'];
+      const envValue = process.env.CORS_ORIGIN;
+      const origins = envValue
+        ? envValue.split(',').map((origin) => origin.trim()).filter(Boolean)
+        : defaultOrigins;
+
+      const resolvedOrigins = origins.length ? origins : defaultOrigins;
+      return resolvedOrigins.length === 1 ? resolvedOrigins[0] : resolvedOrigins;
+    })(),
     credentials: true,
   },
   jwt: {

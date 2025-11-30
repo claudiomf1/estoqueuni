@@ -118,3 +118,4 @@ export function usarDeletarDeposito(tenantId, setMensagem, setErro, refetchDepos
   );
 }
 
+

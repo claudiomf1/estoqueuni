@@ -5,6 +5,7 @@ import { config } from './config/index.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
 import { requestLogger } from './middlewares/logger.js';
 import routes from './routes/index.js';
+import { getTokenHandler } from './controllers/authController.js';
 
 const app = express();
 
@@ -25,6 +26,9 @@ app.get('/health', (req, res) => {
     environment: config.env
   });
 });
+
+// Rota pública para obter token (usada pelo backend-ai)
+app.post('/getToken', getTokenHandler);
 
 // API routes
 app.use('/api', routes);

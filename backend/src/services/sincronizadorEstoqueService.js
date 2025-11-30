@@ -1,5 +1,6 @@
 import axios from 'axios';
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
+import EventoProcessado from '../models/EventoProcessado.js';
 import blingService from './blingService.js';
 import {
   generateCorrelationId,
@@ -169,7 +170,20 @@ class SincronizadorEstoqueService {
         }
       }
 
-      // 5. Atualizar última sincronização
+      // 5. Verificar se todos os depósitos compartilhados foram atualizados com sucesso
+      const depositosComSucesso = Object.values(compartilhadosAtualizados).filter(
+        (dep) => dep.sucesso === true
+      ).length;
+      const totalDepositos = depositosCompartilhados.length;
+      const todosAtualizados = totalDepositos > 0 && depositosComSucesso === totalDepositos;
+      const algumAtualizado = depositosComSucesso > 0;
+      const nenhumDeposito = totalDepositos === 0;
+
+      // Se não há depósitos compartilhados, considera sucesso (não há nada para atualizar)
+      // Se há depósitos compartilhados, só considera sucesso se TODOS foram atualizados
+      const sucessoGeral = nenhumDeposito || todosAtualizados;
+
+      // 6. Atualizar última sincronização
       config.ultimaSincronizacao = new Date();
       config.incrementarEstatistica(origem);
       await config.save();
@@ -181,7 +195,7 @@ class SincronizadorEstoqueService {
       }, {});
 
       const resultado = {
-        success: true,
+        success: sucessoGeral,
         produtoId,
         tenantId,
         origem,
@@ -189,12 +203,115 @@ class SincronizadorEstoqueService {
         saldosArray: saldos, // Array completo para comparação detalhada
         soma: soma,
         compartilhadosAtualizados,
+        estatisticas: {
+          totalDepositosCompartilhados: totalDepositos,
+          depositosAtualizadosComSucesso: depositosComSucesso,
+          depositosComFalha: totalDepositos - depositosComSucesso,
+          todosAtualizados,
+        },
         processadoEm: new Date(),
       };
 
-      console.log(
-        `[SINCRONIZADOR-ESTOQUE] ✅ Sincronização concluída com sucesso para produto ${produtoId}`
-      );
+      if (sucessoGeral) {
+        console.log(
+          `[SINCRONIZADOR-ESTOQUE] ✅ Sincronização concluída com sucesso para produto ${produtoId} - ${depositosComSucesso}/${totalDepositos} depósito(s) compartilhado(s) atualizado(s)`
+        );
+      } else {
+        console.error(
+          `[SINCRONIZADOR-ESTOQUE] ⚠️ Sincronização concluída com FALHAS para produto ${produtoId} - ${depositosComSucesso}/${totalDepositos} depósito(s) compartilhado(s) atualizado(s) com sucesso`
+        );
+        if (algumAtualizado) {
+          console.error(
+            `[SINCRONIZADOR-ESTOQUE] ⚠️ Alguns depósitos foram atualizados, mas nem todos. Verifique os erros acima.`
+          );
+        } else {
+          console.error(
+            `[SINCRONIZADOR-ESTOQUE] ❌ NENHUM depósito compartilhado foi atualizado com sucesso.`
+          );
+        }
+      }
+
+      // 7. Salvar evento no histórico (para cronjob e manual)
+      // Para webhooks, o eventProcessorService já salva, mas para cronjob/manual precisamos salvar aqui
+      // IMPORTANTE: Não salvar produtos compostos (não suportados) - eles não devem aparecer no histórico
+      if (origem === 'cronjob' || origem === 'manual') {
+        try {
+          // Verificar se algum erro indica produto composto
+          const temErroProdutoComposto = !sucessoGeral && Object.values(compartilhadosAtualizados).some(
+            dep => dep.erro && (
+              dep.erro.includes('produto composto') ||
+              dep.erro.includes('PRODUTO_COMPOSTO') ||
+              dep.erro.includes('formato: E')
+            )
+          );
+
+          // Se for produto composto, não salvar no histórico
+          if (temErroProdutoComposto) {
+            console.log(
+              `[SINCRONIZADOR-ESTOQUE] ⚠️ Produto composto ${produtoId} não será salvo no histórico (não suportado)`
+            );
+          } else {
+            // Gerar um eventoId único baseado no timestamp e produtoId
+            const eventoId = `sync-${Date.now()}-${produtoId}`;
+            const chaveUnica = `${produtoId}-${eventoId}`;
+
+            // Verificar se já existe (evitar duplicatas)
+            const eventoExistente = await EventoProcessado.findOne({
+              tenantId,
+              produtoId,
+              origem,
+              processadoEm: {
+                $gte: new Date(Date.now() - 60000), // Último minuto
+              },
+            });
+
+            if (!eventoExistente) {
+              // Montar mensagem de erro detalhada se houver falhas
+              let mensagemErro = null;
+              if (!sucessoGeral) {
+                const depositosComErro = Object.values(compartilhadosAtualizados)
+                  .filter(dep => !dep.sucesso)
+                  .map(dep => `${dep.nomeDeposito || dep.depositoId}: ${dep.erro || 'Erro desconhecido'}`)
+                  .join('; ');
+                
+                mensagemErro = depositosComErro || 
+                  `Falha ao atualizar ${totalDepositos - depositosComSucesso} de ${totalDepositos} depósito(s) compartilhado(s)`;
+              }
+
+              await EventoProcessado.create({
+                tenantId,
+                produtoId,
+                eventoId,
+                chaveUnica,
+                origem,
+                sucesso: sucessoGeral,
+                erro: mensagemErro,
+                saldos: {
+                  ...saldosFormatados,
+                  soma: soma,
+                  saldosArray: saldos,
+                },
+                compartilhadosAtualizados,
+                processadoEm: new Date(),
+              });
+
+              console.log(
+                `[SINCRONIZADOR-ESTOQUE] 📝 Evento salvo no histórico - Produto: ${produtoId}, Origem: ${origem}, Sucesso: ${sucessoGeral}`
+              );
+            } else {
+              console.log(
+                `[SINCRONIZADOR-ESTOQUE] ⚠️ Evento já existe no histórico (último minuto), pulando registro duplicado`
+              );
+            }
+          }
+        } catch (erroRegistro) {
+          // Log do erro, mas não falha a sincronização
+          console.error(
+            `[SINCRONIZADOR-ESTOQUE] ⚠️ Erro ao salvar evento no histórico:`,
+            erroRegistro.message
+          );
+        }
+      }
 
       return resultado;
     } catch (error) {
@@ -202,6 +319,46 @@ class SincronizadorEstoqueService {
         `[SINCRONIZADOR-ESTOQUE] ❌ Erro ao sincronizar estoque para produto ${produtoId}:`,
         error.message
       );
+
+      // Salvar evento com erro no histórico (para cronjob e manual)
+      // EXCETO para produtos compostos - não salvar pois não são suportados
+      const isProdutoComposto = error.message && (
+        error.message.includes('produto composto') ||
+        error.message.includes('PRODUTO_COMPOSTO') ||
+        error.message.includes('formato: E')
+      );
+
+      if ((origem === 'cronjob' || origem === 'manual') && !isProdutoComposto) {
+        try {
+          const eventoId = `sync-error-${Date.now()}-${produtoId}`;
+          const chaveUnica = `${produtoId}-${eventoId}`;
+
+          await EventoProcessado.create({
+            tenantId,
+            produtoId,
+            eventoId,
+            chaveUnica,
+            origem,
+            sucesso: false,
+            erro: error.message || String(error),
+            processadoEm: new Date(),
+          });
+
+          console.log(
+            `[SINCRONIZADOR-ESTOQUE] 📝 Evento com erro salvo no histórico - Produto: ${produtoId}, Origem: ${origem}`
+          );
+        } catch (erroRegistro) {
+          console.error(
+            `[SINCRONIZADOR-ESTOQUE] ⚠️ Erro ao salvar evento com erro no histórico:`,
+            erroRegistro.message
+          );
+        }
+      } else if (isProdutoComposto) {
+        console.log(
+          `[SINCRONIZADOR-ESTOQUE] ⚠️ Produto composto ${produtoId} não será salvo no histórico (não suportado)`
+        );
+      }
+
       throw error;
     }
   }

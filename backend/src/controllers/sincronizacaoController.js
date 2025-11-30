@@ -288,11 +288,26 @@ class SincronizacaoController {
             'manual'
           );
 
-          return res.json({
-            success: true,
-            message: `Produto ${idProduto} sincronizado com sucesso!`,
-            data: resultado
-          });
+          // Verificar se a sincronização foi realmente bem-sucedida
+          if (resultado.success) {
+            return res.json({
+              success: true,
+              message: `Produto ${idProduto} sincronizado com sucesso!`,
+              data: resultado
+            });
+          } else {
+            // Sincronização concluída mas com falhas
+            const estatisticas = resultado.estatisticas || {};
+            const mensagem = estatisticas.totalDepositosCompartilhados > 0
+              ? `Produto ${idProduto} sincronizado com FALHAS: ${estatisticas.depositosAtualizadosComSucesso}/${estatisticas.totalDepositosCompartilhados} depósito(s) compartilhado(s) atualizado(s) com sucesso. Verifique os detalhes em compartilhadosAtualizados.`
+              : `Produto ${idProduto} sincronizado com FALHAS. Verifique os detalhes.`;
+
+            return res.status(207).json({ // 207 Multi-Status - sucesso parcial
+              success: false,
+              message: mensagem,
+              data: resultado
+            });
+          }
         } catch (error) {
           console.error(`Erro ao sincronizar produto ${idProduto}:`, error);
           
@@ -369,14 +384,29 @@ class SincronizacaoController {
         { limite, pagina, origem }
       );
 
-      const total = await EventoProcessado.countDocuments({
+      // Contar total excluindo produtos compostos
+      const queryTotal = {
         tenantId,
         processadoEm: {
           $gte: dataInicioFinal,
           $lte: dataFimFinal
         },
+        // Excluir produtos compostos do histórico (não suportados)
+        $or: [
+          { erro: { $exists: false } },
+          { erro: null },
+          { 
+            erro: { 
+              $not: { 
+                $regex: /produto composto|PRODUTO_COMPOSTO|formato: E/i 
+              } 
+            }
+          }
+        ],
         ...(origem ? { origem } : {})
-      });
+      };
+
+      const total = await EventoProcessado.countDocuments(queryTotal);
 
       return res.json({
         success: true,

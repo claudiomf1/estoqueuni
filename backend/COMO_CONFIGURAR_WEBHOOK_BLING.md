@@ -163,3 +163,4 @@ Se você encontrar problemas durante a configuração:
    - Screenshots da configuração
    - Exemplos de payloads recebidos (se possível)
 
+

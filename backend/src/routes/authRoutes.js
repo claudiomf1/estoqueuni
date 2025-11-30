@@ -4,6 +4,7 @@ import {
   logoutHandler,
   verifyTokenHandler,
   cadastroHandler,
+  getTokenHandler,
 } from '../controllers/authController.js';
 
 const router = express.Router();

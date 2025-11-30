@@ -87,3 +87,4 @@ export function filtrarContasBlingAtivas(contasBling) {
   return contasBling.filter(conta => conta.isActive !== false);
 }
 
+

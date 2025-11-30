@@ -54,3 +54,4 @@ function EstoqueTotalColuna({ produto, mapaNomesContas }) {
 export default EstoqueTotalColuna;
 
 
+

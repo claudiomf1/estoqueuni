@@ -170,3 +170,4 @@ export function processarWebhookVenda(payload, tenantId = null, blingAccountId =
   return eventos;
 }
 
+

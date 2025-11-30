@@ -102,17 +102,49 @@ class VerificacaoEstoqueService {
           );
 
           if (precisaSincronizar) {
-            // Sincronizar estoque
-            await sincronizadorEstoqueService.sincronizarEstoque(
-              produto.sku,
-              tenantId,
-              'cronjob'
-            );
+            try {
+              // Sincronizar estoque
+              const resultado = await sincronizadorEstoqueService.sincronizarEstoque(
+                produto.sku,
+                tenantId,
+                'cronjob'
+              );
 
-            produtosSincronizados++;
-            console.log(
-              `[VERIFICACAO-ESTOQUE] ✅ Produto ${produto.sku} sincronizado com sucesso`
-            );
+              // Verificar se a sincronização foi realmente bem-sucedida
+              if (resultado.success) {
+                produtosSincronizados++;
+                console.log(
+                  `[VERIFICACAO-ESTOQUE] ✅ Produto ${produto.sku} sincronizado com sucesso`
+                );
+              } else {
+                erros++;
+                console.error(
+                  `[VERIFICACAO-ESTOQUE] ❌ Produto ${produto.sku} sincronizado com FALHAS:`,
+                  resultado.estatisticas ? 
+                    `${resultado.estatisticas.depositosAtualizadosComSucesso}/${resultado.estatisticas.totalDepositosCompartilhados} depósito(s) atualizado(s)` :
+                    'Verifique os logs acima para detalhes'
+                );
+              }
+            } catch (error) {
+              // Verificar se é erro de produto composto (não é um erro crítico, apenas ignorar)
+              if (error.message && error.message.includes('produto composto')) {
+                produtosIgnorados++;
+                console.log(
+                  `[VERIFICACAO-ESTOQUE] ⚠️ Produto ${produto.sku} é composto e não pode ser sincronizado (ignorando)`
+                );
+                // Atualizar última sincronização para não tentar novamente
+                await Produto.findOneAndUpdate(
+                  { tenantId, sku: produto.sku },
+                  { ultimaSincronizacao: new Date() }
+                );
+              } else {
+                erros++;
+                console.error(
+                  `[VERIFICACAO-ESTOQUE] ❌ Erro ao sincronizar produto ${produto.sku}:`,
+                  error.message
+                );
+              }
+            }
           } else {
             // Atualizar última sincronização mesmo sem mudança
             await Produto.findOneAndUpdate(

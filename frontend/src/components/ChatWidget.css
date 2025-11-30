@@ -1,0 +1,395 @@
+/**
+ * Estilos do Chat Widget Flutuante - PrecoFacilMarket
+ */
+
+.chat-widget-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16px;
+  max-height: calc(100vh - 48px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.chat-widget-container > * {
+  pointer-events: auto;
+}
+
+/* Janela do Chat */
+.chat-widget-window {
+  width: 380px;
+  max-height: calc(100vh - 120px);
+  height: 550px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideInChat 0.3s ease-out;
+  position: relative;
+}
+
+@keyframes slideInChat {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header da janela */
+.chat-widget-header {
+  background: linear-gradient(135deg, #198754 0%, #157347 100%);
+  color: white;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-widget-header h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.chat-status {
+  margin: 2px 0 0 0;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.chat-end-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.chat-end-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.chat-close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chat-close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Mensagens */
+.chat-widget-messages {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f9fafb;
+}
+
+.chat-message {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message p {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.message-time {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.chat-message.visitor {
+  align-self: flex-end;
+  background: #198754;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-message.bot {
+  align-self: flex-start;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  animation: messageSlideIn 0.3s ease-out, botGlow 2s ease-in-out infinite;
+}
+
+@keyframes botGlow {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
+  }
+}
+
+/* Input de mensagem */
+.chat-widget-input {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: white;
+}
+
+.chat-widget-input input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 2px solid #e5e7eb;
+  border-radius: 20px;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.chat-widget-input input:focus {
+  outline: none;
+  border-color: #198754;
+}
+
+.chat-widget-input button {
+  padding: 10px 14px;
+  background: #198754;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-widget-input button:hover:not(:disabled) {
+  background: #157347;
+  transform: scale(1.05);
+}
+
+.chat-widget-input button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Botão Principal */
+.chat-widget-button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #198754 0%, #157347 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(25, 135, 84, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  animation: pulse 2s infinite;
+  flex-shrink: 0;
+  z-index: 9999;
+  /* Garante que toda a área seja clicável */
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  /* Garante que o botão capture todos os cliques */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 8px 24px rgba(25, 135, 84, 0.4);
+  }
+  50% {
+    box-shadow: 0 8px 24px rgba(25, 135, 84, 0.6), 0 0 0 10px rgba(25, 135, 84, 0.1);
+  }
+}
+
+.chat-widget-button:hover {
+  transform: scale(1.1);
+  box-shadow: 0 12px 32px rgba(25, 135, 84, 0.6);
+  animation: none;
+}
+
+.chat-widget-button:active {
+  transform: scale(0.95);
+}
+
+.chat-widget-button.active {
+  background: #157347;
+  animation: none;
+}
+
+/* Tooltip */
+.chat-widget-tooltip {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  width: 200px;
+  max-width: 200px;
+  min-width: 200px;
+  opacity: 0;
+  animation: slideInTooltip 0.3s ease-out 1s forwards;
+  pointer-events: none;
+  /* Garante que o tooltip não interfira com cliques no botão */
+  position: absolute;
+  right: 80px;
+  bottom: 0;
+  z-index: 9997;
+  /* Torna mais discreto */
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+@keyframes slideInTooltip {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.chat-widget-tooltip p {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #4b5563;
+  line-height: 1.3;
+}
+
+.tooltip-subtitle {
+  font-size: 0.7rem !important;
+  font-weight: 400 !important;
+  color: #6b7280 !important;
+  margin-top: 2px !important;
+  line-height: 1.2 !important;
+}
+
+/* Seta do tooltip */
+.chat-widget-tooltip::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid white;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+/* Responsivo - Mobile */
+@media (max-width: 768px) {
+  .chat-widget-container {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    max-height: calc(100vh - 32px);
+  }
+
+  .chat-widget-window {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100vh - 100px);
+    height: 500px;
+  }
+
+  .chat-widget-button {
+    width: 56px;
+    height: 56px;
+    align-self: flex-end;
+  }
+
+  .chat-widget-tooltip {
+    display: none;
+  }
+}
+
+/* Animação de entrada */
+.chat-widget-container {
+  animation: slideInWidget 0.5s ease-out 1s backwards;
+}
+
+@keyframes slideInWidget {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Destaque inicial */
+.chat-widget-button::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(25, 135, 84, 0.3);
+  transform: translate(-50%, -50%) scale(0);
+  animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  pointer-events: none;
+  z-index: -1;
+  /* Garante que não interfira com cliques */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 0;
+  }
+}
+

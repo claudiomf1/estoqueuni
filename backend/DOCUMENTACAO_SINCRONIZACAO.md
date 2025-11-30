@@ -226,3 +226,4 @@ POST /api/sincronizacao/manual
 - [ ] Notificações de falhas
 - [ ] Dashboard de métricas
 
+
