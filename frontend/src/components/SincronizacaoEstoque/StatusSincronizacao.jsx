@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Badge, Spinner, Row, Col, Button } from 'react-bootstrap';
+import { Card, Badge, Spinner, Row, Col, Button, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { CheckCircle, XCircle, Clock, Activity, PauseFill, PlayFill, ArrowClockwise } from 'react-bootstrap-icons';
 
 export default function StatusSincronizacao({ status, isLoading, pollingAtivo, onTogglePolling, onRefreshManual }) {
@@ -77,8 +77,30 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
   return (
     <Card className="mb-4">
       <Card.Header className="d-flex justify-content-between align-items-center">
-        <div className="d-flex align-items-center gap-2">
+        <div className="d-flex align-items-center gap-3">
           <h5 className="mb-0">Status da Sincronização</h5>
+          <div className="d-flex align-items-center gap-2">
+            {status.ativo ? (
+              <CheckCircle size={20} className="text-success" />
+            ) : (
+              <XCircle size={20} className="text-danger" />
+            )}
+            <div className="d-flex align-items-center gap-1">
+              <span className="text-muted small">Status Geral:</span>
+              <OverlayTrigger
+                placement="top"
+                overlay={
+                  <Tooltip>
+                    Status detectado automaticamente baseado na configuração completa
+                  </Tooltip>
+                }
+              >
+                <Badge bg={status.ativo ? 'success' : 'secondary'} style={{ cursor: 'help' }}>
+                  {status.ativo ? 'Ativo' : 'Inativo'}
+                </Badge>
+              </OverlayTrigger>
+            </div>
+          </div>
           {pollingAtivo === false && (
             <Badge bg="secondary" className="ms-2">
               <PauseFill size={12} className="me-1" />
@@ -121,100 +143,6 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
         </div>
       </Card.Header>
       <Card.Body>
-        <Row>
-          <Col md={3} className="mb-3">
-            <div className="d-flex align-items-center">
-              <div className="me-3">
-                {status.ativo ? (
-                  <CheckCircle size={32} className="text-success" />
-                ) : (
-                  <XCircle size={32} className="text-danger" />
-                )}
-              </div>
-              <div>
-                <div className="fw-bold">Status Geral</div>
-                <Badge bg={status.ativo ? 'success' : 'secondary'}>
-                  {status.ativo ? 'Ativo' : 'Inativo'}
-                </Badge>
-                <small className="text-muted d-block mt-1">
-                  Status geral da sincronização para todas as contas Bling
-                </small>
-              </div>
-            </div>
-          </Col>
-
-          <Col md={3} className="mb-3">
-            <div className="d-flex align-items-center">
-              <div className="me-3">
-                {status.cronjobAtivo ? (
-                  <CheckCircle size={32} className="text-success" />
-                ) : (
-                  <XCircle size={32} className="text-warning" />
-                )}
-              </div>
-              <div>
-                <div className="fw-bold">Cronjob</div>
-                <Badge bg={status.cronjobAtivo ? 'success' : 'warning'}>
-                  {status.cronjobAtivo ? 'Ativo' : 'Inativo'}
-                </Badge>
-              </div>
-            </div>
-          </Col>
-
-          <Col md={3} className="mb-3">
-            <div className="d-flex align-items-center">
-              <div className="me-3">
-                <Clock size={32} className="text-info" />
-              </div>
-              <div>
-                <div className="fw-bold">Última Sincronização</div>
-                <small className="text-muted d-block">
-                  {formatarData(status.ultimaSincronizacao)}
-                </small>
-              </div>
-            </div>
-          </Col>
-        </Row>
-
-        <hr />
-
-        <Row>
-          <Col md={12} className="mb-3">
-            <div>
-              <div className="fw-bold mb-3">Notificações Automáticas (Webhook) por Conta Bling</div>
-              {status.webhook?.contasBling && status.webhook.contasBling.length > 0 ? (
-                <div className="d-flex flex-wrap gap-3">
-                  {status.webhook.contasBling.map((conta, index) => (
-                    <div key={conta.blingAccountId || index} className="d-flex align-items-center border rounded p-3 bg-light" style={{ minWidth: '250px' }}>
-                      <div className="me-3">
-                        {conta.webhookConfigurado ? (
-                          <CheckCircle size={24} className="text-success" />
-                        ) : (
-                          <XCircle size={24} className="text-warning" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="fw-semibold">{conta.accountName || conta.blingAccountId}</div>
-                        <Badge bg={conta.webhookConfigurado ? 'success' : 'warning'} className="mt-1">
-                          {conta.webhookConfigurado ? 'Webhook Ativo' : 'Webhook Inativo'}
-                        </Badge>
-                        {conta.webhookConfiguradoEm && (
-                          <small className="text-muted d-block mt-1">
-                            Configurado em: {formatarData(conta.webhookConfiguradoEm)}
-                          </small>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-muted">Nenhuma conta Bling configurada</div>
-              )}
-            </div>
-          </Col>
-        </Row>
-
-        <hr />
 
         <Row>
           <Col md={3} className="mb-2">

@@ -93,8 +93,14 @@ class SincronizacaoController {
         };
       }
 
-      if (ativo !== undefined) {
-        config.ativo = ativo;
+      // Status ativo é sempre calculado automaticamente baseado na configuração completa
+      // Não permite alteração manual - apenas detecta automaticamente
+      if (config.isConfigurationComplete()) {
+        config.ativo = true;
+        console.log(`[Sincronizacao] ✅ Status ativo detectado automaticamente para tenant ${tenantId} (configuração completa)`);
+      } else {
+        config.ativo = false;
+        console.log(`[Sincronizacao] ⚠️ Status inativo - configuração incompleta para tenant ${tenantId}`);
       }
 
       await config.save();
@@ -136,6 +142,13 @@ class SincronizacaoController {
           success: false,
           error: 'Configuração não encontrada'
         });
+      }
+
+      // Se a configuração está completa mas o status está inativo, ativar automaticamente
+      if (config.isConfigurationComplete() && !config.ativo) {
+        config.ativo = true;
+        await config.save();
+        console.log(`[Sincronizacao] ✅ Status geral ativado automaticamente para tenant ${tenantId} (configuração completa)`);
       }
 
       // Buscar último evento processado

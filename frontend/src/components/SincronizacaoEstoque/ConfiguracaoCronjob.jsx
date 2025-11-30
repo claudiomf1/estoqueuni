@@ -37,7 +37,7 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
       });
 
       if (response.data?.success !== false) {
-        setMensagem('Configuração do cronjob salva com sucesso!');
+        setMensagem('Configuração da sincronização automática salva com sucesso!');
         if (typeof onConfigAtualizada === 'function') {
           onConfigAtualizada();
         }
@@ -46,7 +46,7 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
         throw new Error(response.data?.message || 'Erro ao salvar configuração');
       }
     } catch (err) {
-      setErro(err.mensagem || err.message || 'Erro ao salvar configuração do cronjob');
+      setErro(err.mensagem || err.message || 'Erro ao salvar configuração da sincronização automática');
       setTimeout(() => setErro(null), 7000);
     } finally {
       setSalvando(false);
@@ -79,7 +79,7 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
     return (
       <Card className="mb-4">
         <Card.Header>
-          <h5 className="mb-0">Configuração de Cronjob</h5>
+          <h5 className="mb-0">Configuração de Sincronização Automática</h5>
         </Card.Header>
         <Card.Body className="text-center">
           <Spinner animation="border" className="me-2" />
@@ -94,7 +94,7 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
       <Card.Header>
         <div className="d-flex align-items-center">
           <Clock className="me-2" />
-          <h5 className="mb-0">Configuração de Cronjob</h5>
+          <h5 className="mb-0">Configuração de Sincronização Automática</h5>
         </div>
       </Card.Header>
       <Card.Body>

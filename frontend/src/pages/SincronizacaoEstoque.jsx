@@ -10,6 +10,8 @@ import ConfiguracaoCronjob from '../components/SincronizacaoEstoque/Configuracao
 import SincronizacaoManual from '../components/SincronizacaoEstoque/SincronizacaoManual';
 import HistoricoSincronizacoes from '../components/SincronizacaoEstoque/HistoricoSincronizacoes';
 import LogsMonitoramento from '../components/SincronizacaoEstoque/LogsMonitoramento';
+import StatusWebhookPorConta from '../components/SincronizacaoEstoque/StatusWebhookPorConta';
+import StatusDetalhesSincronizacao from '../components/SincronizacaoEstoque/StatusDetalhesSincronizacao';
 
 export default function SincronizacaoEstoque() {
   const { tenantId } = useTenant();
@@ -17,6 +19,7 @@ export default function SincronizacaoEstoque() {
   const [pollingAtivo, setPollingAtivo] = useState(true);
   const [accordionAtivo, setAccordionAtivo] = useState(null);
   const [usuarioFechouWebhook, setUsuarioFechouWebhook] = useState(false);
+  const [usuarioFechouStatusWebhook, setUsuarioFechouStatusWebhook] = useState(false);
 
   // Query para obter status geral
   const { data: statusResponse, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery(
@@ -53,10 +56,17 @@ export default function SincronizacaoEstoque() {
   // Webhook está ativo apenas se todas as contas Bling ativas estiverem configuradas
   // Se não houver contas Bling, considera inativo
   const webhookAtivo = webhookInfo.totalContas > 0 && webhookInfo.todasConfiguradas === true;
+  
+  // Processar status de cronjob
+  const cronjobInfo = status?.cronjob || {};
+  const cronjobAtivo = cronjobInfo.ativo === true;
+  
   const statusComWebhookProcessado = {
     ...status,
     webhookAtivo,
-    webhook: webhookInfo
+    webhook: webhookInfo,
+    cronjobAtivo,
+    cronjob: cronjobInfo
   };
 
   // Calcular se deve abrir a seção de webhook e atualizar estado
@@ -79,6 +89,28 @@ export default function SincronizacaoEstoque() {
       setAccordionAtivo('webhook');
     }
   }, [configDepositosAtual, isLoadingConfig, usuarioFechouWebhook]);
+
+  // Calcular se deve abrir a seção de status webhook por conta
+  useEffect(() => {
+    if (isLoadingStatus) return; // Aguardar carregamento
+    
+    const webhookInfo = statusComWebhookProcessado?.webhook || {};
+    const contasBling = webhookInfo.contasBling || [];
+    const temContasInativas = contasBling.some(conta => !conta.webhookConfigurado);
+    
+    // Se todas as contas estão ativas, garantir que a seção esteja fechada
+    if (!temContasInativas) {
+      if (accordionAtivo === 'status-webhook') {
+        setAccordionAtivo(null);
+      }
+      setUsuarioFechouStatusWebhook(false); // Resetar flag quando todas estão ativas
+    }
+    // Se há contas inativas e o usuário não fechou manualmente, abrir
+    else if (temContasInativas && !usuarioFechouStatusWebhook && !accordionAtivo) {
+      // Só abre se não houver outra seção aberta
+      setAccordionAtivo('status-webhook');
+    }
+  }, [statusComWebhookProcessado, isLoadingStatus, usuarioFechouStatusWebhook, accordionAtivo]);
 
   const handleSincronizacaoCompleta = () => {
     refetchStatus();
@@ -128,8 +160,36 @@ export default function SincronizacaoEstoque() {
           else if (key === 'webhook') {
             setUsuarioFechouWebhook(false);
           }
+          // Se o usuário fechou a seção de status webhook manualmente, marcar flag
+          if (key !== 'status-webhook' && accordionAtivo === 'status-webhook') {
+            setUsuarioFechouStatusWebhook(true);
+          }
+          // Se o usuário abriu a seção de status webhook manualmente, resetar flag
+          else if (key === 'status-webhook') {
+            setUsuarioFechouStatusWebhook(false);
+          }
         }}
       >
+        {/* Detalhes de Sincronização */}
+        <Accordion.Item eventKey="detalhes-sincronizacao">
+          <Accordion.Header>
+            <strong>Detalhes de Sincronização</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <StatusDetalhesSincronizacao status={statusComWebhookProcessado} />
+          </Accordion.Body>
+        </Accordion.Item>
+
+        {/* Status de Webhook por Conta */}
+        <Accordion.Item eventKey="status-webhook">
+          <Accordion.Header>
+            <strong>Status de Notificações Automáticas (Webhook) por Conta Bling</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <StatusWebhookPorConta webhookInfo={statusComWebhookProcessado?.webhook} />
+          </Accordion.Body>
+        </Accordion.Item>
+
         {/* Configuração de Webhook */}
         <Accordion.Item eventKey="webhook">
           <Accordion.Header>
@@ -147,7 +207,7 @@ export default function SincronizacaoEstoque() {
         {/* Configuração de Cronjob */}
         <Accordion.Item eventKey="cronjob">
           <Accordion.Header>
-            <strong>Configuração de Sincronização Automática (Cronjob)</strong>
+            <strong>Configuração de Sincronização Automática</strong>
           </Accordion.Header>
           <Accordion.Body>
             <ConfiguracaoCronjob

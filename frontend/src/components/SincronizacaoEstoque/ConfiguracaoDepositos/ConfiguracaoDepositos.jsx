@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, Alert, Spinner } from 'react-bootstrap';
+import { Card, Form, Button, Alert, Spinner, Accordion } from 'react-bootstrap';
 import { Save, Building } from 'react-bootstrap-icons';
 import { sincronizacaoApi } from '../../../services/sincronizacaoApi';
 import { validarConfiguracao } from './utilitarios';
@@ -254,19 +254,28 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
       </Card.Header>
       <Card.Body>
         <Form>
-          <SecaoGerenciarBling
-            contaSelecionada={contaSelecionada}
-            setContaSelecionada={setContaSelecionada}
-            contasBling={contasBling}
-            depositosBling={depositosBling}
-            carregandoDepositos={carregandoDepositos}
-            depositos={depositos}
-            salvando={salvando}
-            setMostrarModalCriar={setMostrarModalCriar}
-            handleAdicionarDepositoDaLista={handleAdicionarDepositoDaLista}
-            handleDeletarDeposito={handleDeletarDeposito}
-            deletarDepositoMutation={deletarDepositoMutation}
-          />
+          <Accordion className="mb-4">
+            <Accordion.Item eventKey="gerenciar-bling">
+              <Accordion.Header>
+                <strong>Gerenciar Depósitos do Bling</strong>
+              </Accordion.Header>
+              <Accordion.Body>
+                <SecaoGerenciarBling
+                  contaSelecionada={contaSelecionada}
+                  setContaSelecionada={setContaSelecionada}
+                  contasBling={contasBling}
+                  depositosBling={depositosBling}
+                  carregandoDepositos={carregandoDepositos}
+                  depositos={depositos}
+                  salvando={salvando}
+                  setMostrarModalCriar={setMostrarModalCriar}
+                  handleAdicionarDepositoDaLista={handleAdicionarDepositoDaLista}
+                  handleDeletarDeposito={handleDeletarDeposito}
+                  deletarDepositoMutation={deletarDepositoMutation}
+                />
+              </Accordion.Body>
+            </Accordion.Item>
+          </Accordion>
 
           <ListaDepositos
             depositos={depositos}

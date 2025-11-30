@@ -1,6 +1,6 @@
 import React from 'react';
 import { Form, Button, Alert, Spinner, Badge, Row, Col } from 'react-bootstrap';
-import { CloudArrowDown, Plus, X, Trash } from 'react-bootstrap-icons';
+import { Plus, X, Trash } from 'react-bootstrap-icons';
 
 export default function SecaoGerenciarBling({
   contaSelecionada,
@@ -16,11 +16,7 @@ export default function SecaoGerenciarBling({
   deletarDepositoMutation
 }) {
   return (
-    <div className="mb-4 p-3 border rounded bg-light">
-      <h6 className="mb-3">
-        <CloudArrowDown className="me-2" />
-        Gerenciar Depósitos do Bling
-      </h6>
+    <div>
       <Row>
         <Col md={6}>
           <Form.Group className="mb-3">

@@ -3,6 +3,7 @@ import { Card, Table, Form, Button, Badge, Spinner, Pagination, Alert } from 're
 import { Clock, ChevronDown, ChevronUp } from 'react-bootstrap-icons';
 import { sincronizacaoApi } from '../../services/sincronizacaoApi';
 import { useQuery } from 'react-query';
+import FiltrosRapidosDias from './HistoricoSincronizacoes/FiltrosRapidosDias';
 
 export default function HistoricoSincronizacoes({ tenantId }) {
   const [filtros, setFiltros] = useState({
@@ -17,11 +18,20 @@ export default function HistoricoSincronizacoes({ tenantId }) {
 
   const { data: historicoResponse, isLoading, refetch } = useQuery(
     ['historico-sincronizacoes', tenantId, pagina, itensPorPagina, filtros],
-    () => sincronizacaoApi.obterHistoricoSincronizacoes(tenantId, {
-      limit: itensPorPagina,
-      skip: (pagina - 1) * itensPorPagina,
-      ...filtros
-    }),
+    () => {
+      // Preparar filtros: remover campos vazios para que o backend use padrões
+      const filtrosLimpos = { ...filtros };
+      if (!filtrosLimpos.dataInicio) delete filtrosLimpos.dataInicio;
+      if (!filtrosLimpos.dataFim) delete filtrosLimpos.dataFim;
+      if (!filtrosLimpos.origem) delete filtrosLimpos.origem;
+      if (!filtrosLimpos.sku) delete filtrosLimpos.sku;
+      
+      return sincronizacaoApi.obterHistoricoSincronizacoes(tenantId, {
+        limit: itensPorPagina,
+        skip: (pagina - 1) * itensPorPagina,
+        ...filtrosLimpos
+      });
+    },
     {
       enabled: !!tenantId,
       select: (response) => {
@@ -65,6 +75,18 @@ export default function HistoricoSincronizacoes({ tenantId }) {
     setPagina(1);
   };
 
+  /**
+   * Handler para aplicar filtro rápido de dias
+   */
+  const handleFiltroRapidoDias = (dataInicio, dataFim) => {
+    setFiltros(prev => ({
+      ...prev,
+      dataInicio,
+      dataFim
+    }));
+    setPagina(1);
+  };
+
   const toggleLinha = (id) => {
     setLinhaExpandida(linhaExpandida === id ? null : id);
   };
@@ -87,6 +109,9 @@ export default function HistoricoSincronizacoes({ tenantId }) {
         </div>
       </Card.Header>
       <Card.Body>
+        {/* Filtros Rápidos por Dias */}
+        <FiltrosRapidosDias onFiltroAplicado={handleFiltroRapidoDias} />
+
         {/* Filtros */}
         <div className="mb-3 p-3 bg-light rounded">
           <h6 className="mb-3">Filtros</h6>
@@ -115,7 +140,7 @@ export default function HistoricoSincronizacoes({ tenantId }) {
               >
                 <option value="">Todas</option>
                 <option value="webhook">Notificações Automáticas (Webhook)</option>
-                <option value="cronjob">Cronjob</option>
+                <option value="cronjob">Sincronização Automática</option>
                 <option value="manual">Manual</option>
               </Form.Select>
             </div>
@@ -193,7 +218,7 @@ export default function HistoricoSincronizacoes({ tenantId }) {
                             item.origem === 'cronjob' ? 'info' : 'secondary'
                           }>
                             {item.origem === 'webhook' ? 'Notificações Automáticas (Webhook)' :
-                             item.origem === 'cronjob' ? 'Cronjob' : 
+                             item.origem === 'cronjob' ? 'Sincronização Automática' : 
                              item.origem || 'Manual'}
                           </Badge>
                         </td>
@@ -342,4 +367,3 @@ export default function HistoricoSincronizacoes({ tenantId }) {
     </Card>
   );
 }
-

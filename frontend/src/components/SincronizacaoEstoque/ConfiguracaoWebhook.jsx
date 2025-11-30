@@ -3,21 +3,25 @@ import { Card, Button, Alert, Spinner, Badge, OverlayTrigger, Tooltip } from 're
 import { Link45deg, CheckCircle, XCircle, Magic } from 'react-bootstrap-icons';
 import WizardAssistenteWebhook from './WizardAssistenteWebhook/WizardAssistenteWebhook';
 import { usarContasBling } from './ConfiguracaoDepositos/hooks-uso-depositos.jsx';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import { sincronizacaoApi } from '../../services/sincronizacaoApi';
 
 export default function ConfiguracaoWebhook({ tenantId, configuracao, isLoading }) {
   const webhook = configuracao?.webhook || null;
   const [mostrarWizard, setMostrarWizard] = useState(false);
   const { data: contasBling = [] } = usarContasBling(tenantId);
+  const queryClient = useQueryClient();
   
   // Buscar configuração atualizada para verificar status das contas
+  // Usar a mesma query key da página principal para compartilhar cache
   const { data: configAtualizada, refetch: refetchConfig } = useQuery(
-    ['config-sincronizacao-webhook', tenantId],
+    ['config-sincronizacao', tenantId],
     () => sincronizacaoApi.obterConfiguracao(tenantId),
     {
       enabled: !!tenantId,
-      select: (response) => response.data?.data || response.data
+      select: (response) => response.data?.data || response.data,
+      refetchOnWindowFocus: true, // Recarregar quando a janela ganhar foco
+      staleTime: 5000, // Considerar dados "frescos" por 5 segundos
     }
   );
   
@@ -32,12 +36,24 @@ export default function ConfiguracaoWebhook({ tenantId, configuracao, isLoading 
   const webhookFuncionando = verificarWebhookFuncionando();
   
   // Verificar quais contas estão configuradas
+  // Priorizar configAtualizada (dados mais recentes), mas usar configuracao como fallback
+  const todasContasBling = configAtualizada?.contasBling || configuracao?.contasBling || [];
   const contasBlingAtivas = contasBling.filter(conta => conta.isActive !== false);
-  const contasConfiguradas = (configAtualizada?.contasBling || configuracao?.contasBling || [])
+  const contasConfiguradas = todasContasBling
     .filter(conta => conta.isActive !== false && conta.webhookConfigurado === true);
+  
+  // Criar um Set com os IDs das contas configuradas para busca mais eficiente
+  const idsContasConfiguradas = new Set(
+    contasConfiguradas.map(c => c.blingAccountId).filter(Boolean)
+  );
+  
   const contasNaoConfiguradas = contasBlingAtivas.filter(conta => {
-    const contaId = conta.blingAccountId || conta._id || conta.id;
-    return !contasConfiguradas.some(c => (c.blingAccountId || c._id || c.id) === contaId);
+    // Usar sempre blingAccountId como identificador principal
+    const contaId = conta.blingAccountId;
+    if (!contaId) {
+      return true; // Se não tem ID, considerar como não configurada
+    }
+    return !idsContasConfiguradas.has(contaId);
   });
   
   const temContasParaConfigurar = contasNaoConfiguradas.length > 0;
@@ -231,7 +247,13 @@ export default function ConfiguracaoWebhook({ tenantId, configuracao, isLoading 
         contasBling={contasBling}
         webhookFuncionando={webhookFuncionando}
         onContaConfigurada={() => {
-          refetchConfig();
+          // Invalidar todas as queries relacionadas para garantir atualização
+          queryClient.invalidateQueries(['config-sincronizacao', tenantId]);
+          queryClient.invalidateQueries(['sincronizacao-status', tenantId]);
+          // Aguardar um pouco antes de refetch para garantir que o backend salvou
+          setTimeout(() => {
+            refetchConfig();
+          }, 500);
         }}
       />
     </Card>
