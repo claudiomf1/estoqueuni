@@ -212,14 +212,50 @@ export default function HistoricoSincronizacoes({ tenantId }) {
                               <div className="mb-2">
                                 <strong>Detalhes:</strong>
                               </div>
-                              {item.mensagem && (
+                              {item.produtoId && (
                                 <div className="mb-1">
-                                  <strong>Mensagem:</strong> {item.mensagem}
+                                  <strong>Produto ID:</strong> {item.produtoId}
+                                </div>
+                              )}
+                              {item.eventoId && (
+                                <div className="mb-1">
+                                  <strong>Evento ID:</strong> {item.eventoId}
+                                </div>
+                              )}
+                              {item.depositoOrigem && (
+                                <div className="mb-1">
+                                  <strong>Depósito Origem:</strong> {item.depositoOrigem}
+                                </div>
+                              )}
+                              {item.blingAccountId && (
+                                <div className="mb-1">
+                                  <strong>Conta Bling:</strong> {item.blingAccountId}
+                                </div>
+                              )}
+                              {item.saldos && Object.keys(item.saldos).length > 0 && (
+                                <div className="mb-1">
+                                  <strong>Saldos:</strong>
+                                  <pre className="small bg-white p-2 border rounded mt-1">
+                                    {JSON.stringify(item.saldos, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {item.compartilhadosAtualizados && Object.keys(item.compartilhadosAtualizados).length > 0 && (
+                                <div className="mb-1">
+                                  <strong>Depósitos Compartilhados Atualizados:</strong>
+                                  <pre className="small bg-white p-2 border rounded mt-1">
+                                    {JSON.stringify(item.compartilhadosAtualizados, null, 2)}
+                                  </pre>
                                 </div>
                               )}
                               {item.erro && (
                                 <div className="mb-1 text-danger">
                                   <strong>Erro:</strong> {item.erro}
+                                </div>
+                              )}
+                              {item.mensagem && (
+                                <div className="mb-1">
+                                  <strong>Mensagem:</strong> {item.mensagem}
                                 </div>
                               )}
                               {item.detalhes && (
