@@ -143,13 +143,31 @@ class SincronizacaoController {
         .sort({ processadoEm: -1 })
         .limit(1);
 
+      // Calcular status de webhook baseado nas contas Bling
+      const contasBlingAtivas = (config.contasBling || []).filter(c => c.isActive !== false);
+      const contasComWebhookConfigurado = contasBlingAtivas.filter(c => c.webhookConfigurado === true);
+      const todasContasConfiguradas = contasBlingAtivas.length > 0 && 
+                                      contasBlingAtivas.length === contasComWebhookConfigurado.length;
+      const peloMenosUmaConfigurada = contasComWebhookConfigurado.length > 0;
+
       return res.json({
         success: true,
         data: {
           ativo: config.ativo,
           webhook: {
-            ativo: config.webhook?.ativo || false,
-            ultimaRequisicao: config.webhook?.ultimaRequisicao || null
+            // Status baseado nas contas Bling (fonte de verdade)
+            ativo: todasContasConfiguradas, // Calculado dinamicamente baseado nas contas Bling
+            ultimaRequisicao: config.webhook?.ultimaRequisicao || null,
+            totalContas: contasBlingAtivas.length,
+            contasConfiguradas: contasComWebhookConfigurado.length,
+            todasConfiguradas: todasContasConfiguradas,
+            peloMenosUmaConfigurada: peloMenosUmaConfigurada,
+            contasBling: contasBlingAtivas.map(conta => ({
+              blingAccountId: conta.blingAccountId,
+              accountName: conta.accountName,
+              webhookConfigurado: conta.webhookConfigurado || false,
+              webhookConfiguradoEm: conta.webhookConfiguradoEm || null
+            }))
           },
           cronjob: {
             ativo: config.cronjob?.ativo || false,
@@ -555,6 +573,67 @@ class SincronizacaoController {
       return res.status(500).json({
         success: false,
         error: 'Erro ao atualizar cronjob',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Marca uma conta Bling como tendo webhook configurado
+   * PUT /api/sincronizacao/webhook/marcar-conta-configurada
+   * Body: { tenantId, blingAccountId }
+   */
+  async marcarContaWebhookConfigurada(req, res) {
+    try {
+      const tenantId = req.tenantId || req.body.tenantId;
+      const { blingAccountId } = req.body;
+
+      if (!tenantId) {
+        return res.status(400).json({
+          success: false,
+          error: 'tenantId é obrigatório'
+        });
+      }
+
+      if (!blingAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: 'blingAccountId é obrigatório'
+        });
+      }
+
+      const config = await ConfiguracaoSincronizacao.buscarOuCriar(tenantId);
+
+      // Buscar a conta no array
+      const contaIndex = config.contasBling.findIndex(
+        conta => conta.blingAccountId === blingAccountId
+      );
+
+      if (contaIndex === -1) {
+        return res.status(404).json({
+          success: false,
+          error: 'Conta Bling não encontrada'
+        });
+      }
+
+      // Marcar como configurada
+      config.contasBling[contaIndex].webhookConfigurado = true;
+      config.contasBling[contaIndex].webhookConfiguradoEm = new Date();
+
+      await config.save();
+
+      return res.json({
+        success: true,
+        data: {
+          conta: config.contasBling[contaIndex]
+        },
+        message: 'Conta Bling marcada como configurada com sucesso'
+      });
+    } catch (error) {
+      console.error('❌ Erro ao marcar conta como configurada:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Erro ao marcar conta como configurada',
         message: error.message
       });
     }

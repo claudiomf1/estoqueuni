@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Container } from 'react-bootstrap';
+import React, { useState, useEffect } from 'react';
+import { Container, Accordion } from 'react-bootstrap';
 import { useTenant } from '../context/TenantContext';
 import { useQuery } from 'react-query';
 import { sincronizacaoApi } from '../services/sincronizacaoApi';
@@ -15,6 +15,8 @@ export default function SincronizacaoEstoque() {
   const { tenantId } = useTenant();
   const [configDepositos, setConfigDepositos] = useState(null);
   const [pollingAtivo, setPollingAtivo] = useState(true);
+  const [accordionAtivo, setAccordionAtivo] = useState(null);
+  const [usuarioFechouWebhook, setUsuarioFechouWebhook] = useState(false);
 
   // Query para obter status geral
   const { data: statusResponse, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery(
@@ -45,6 +47,38 @@ export default function SincronizacaoEstoque() {
   const status = statusResponse || {};
   const configDepositosAtual = configDepositos || configResponse || {};
   const cronjobConfigurado = status?.cronjob || configDepositosAtual?.cronjob || {};
+  
+  // Processar status de webhook baseado nas contas Bling
+  const webhookInfo = status?.webhook || {};
+  // Webhook está ativo apenas se todas as contas Bling ativas estiverem configuradas
+  // Se não houver contas Bling, considera inativo
+  const webhookAtivo = webhookInfo.totalContas > 0 && webhookInfo.todasConfiguradas === true;
+  const statusComWebhookProcessado = {
+    ...status,
+    webhookAtivo,
+    webhook: webhookInfo
+  };
+
+  // Calcular se deve abrir a seção de webhook e atualizar estado
+  useEffect(() => {
+    if (isLoadingConfig) return; // Aguardar carregamento
+    
+    const contasBlingAtivas = (configDepositosAtual?.contasBling || []).filter(c => c.isActive !== false);
+    const contasConfiguradas = (configDepositosAtual?.contasBling || []).filter(
+      c => c.isActive !== false && c.webhookConfigurado === true
+    );
+    const temContasParaConfigurar = contasBlingAtivas.length > contasConfiguradas.length;
+    
+    // Se não há contas para configurar, garantir que a seção esteja fechada
+    if (!temContasParaConfigurar) {
+      setAccordionAtivo(null);
+      setUsuarioFechouWebhook(false); // Resetar flag quando não há mais contas
+    }
+    // Se há contas para configurar e o usuário não fechou manualmente, abrir
+    else if (temContasParaConfigurar && !usuarioFechouWebhook) {
+      setAccordionAtivo('webhook');
+    }
+  }, [configDepositosAtual, isLoadingConfig, usuarioFechouWebhook]);
 
   const handleSincronizacaoCompleta = () => {
     refetchStatus();
@@ -66,7 +100,7 @@ export default function SincronizacaoEstoque() {
 
       {/* Status da Sincronização */}
       <StatusSincronizacao
-        status={status}
+        status={statusComWebhookProcessado}
         isLoading={isLoadingStatus}
         pollingAtivo={pollingAtivo}
         onTogglePolling={() => setPollingAtivo(!pollingAtivo)}
@@ -80,32 +114,84 @@ export default function SincronizacaoEstoque() {
         onConfigUpdate={handleConfigDepositosUpdate}
       />
 
-      {/* Configuração de Webhook */}
-      <ConfiguracaoWebhook
-        tenantId={tenantId}
-        configuracao={configDepositosAtual}
-        isLoading={isLoadingConfig}
-      />
+      {/* Seções Avançadas - Colapsáveis */}
+      <Accordion 
+        className="mb-4" 
+        activeKey={accordionAtivo || undefined} 
+        onSelect={(key) => {
+          setAccordionAtivo(key);
+          // Se o usuário fechou a seção de webhook manualmente, marcar flag
+          if (key !== 'webhook' && accordionAtivo === 'webhook') {
+            setUsuarioFechouWebhook(true);
+          }
+          // Se o usuário abriu a seção de webhook manualmente, resetar flag
+          else if (key === 'webhook') {
+            setUsuarioFechouWebhook(false);
+          }
+        }}
+      >
+        {/* Configuração de Webhook */}
+        <Accordion.Item eventKey="webhook">
+          <Accordion.Header>
+            <strong>Configuração de Notificações Automáticas (Webhook)</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <ConfiguracaoWebhook
+              tenantId={tenantId}
+              configuracao={configDepositosAtual}
+              isLoading={isLoadingConfig}
+            />
+          </Accordion.Body>
+        </Accordion.Item>
 
-      {/* Configuração de Cronjob */}
-      <ConfiguracaoCronjob
-        tenantId={tenantId}
-        cronjob={cronjobConfigurado}
-        isLoading={isLoadingStatus}
-        onConfigAtualizada={refetchStatus}
-      />
+        {/* Configuração de Cronjob */}
+        <Accordion.Item eventKey="cronjob">
+          <Accordion.Header>
+            <strong>Configuração de Sincronização Automática (Cronjob)</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <ConfiguracaoCronjob
+              tenantId={tenantId}
+              cronjob={cronjobConfigurado}
+              isLoading={isLoadingStatus}
+              onConfigAtualizada={refetchStatus}
+            />
+          </Accordion.Body>
+        </Accordion.Item>
 
-      {/* Sincronização Manual */}
-      <SincronizacaoManual
-        tenantId={tenantId}
-        onSincronizacaoCompleta={handleSincronizacaoCompleta}
-      />
+        {/* Sincronização Manual */}
+        <Accordion.Item eventKey="manual">
+          <Accordion.Header>
+            <strong>Sincronização Manual</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <SincronizacaoManual
+              tenantId={tenantId}
+              onSincronizacaoCompleta={handleSincronizacaoCompleta}
+            />
+          </Accordion.Body>
+        </Accordion.Item>
 
-      {/* Histórico de Sincronizações */}
-      <HistoricoSincronizacoes tenantId={tenantId} />
+        {/* Histórico de Sincronizações */}
+        <Accordion.Item eventKey="historico">
+          <Accordion.Header>
+            <strong>Histórico de Sincronizações</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <HistoricoSincronizacoes tenantId={tenantId} />
+          </Accordion.Body>
+        </Accordion.Item>
 
-      {/* Logs e Monitoramento */}
-      <LogsMonitoramento tenantId={tenantId} />
+        {/* Logs e Monitoramento */}
+        <Accordion.Item eventKey="logs">
+          <Accordion.Header>
+            <strong>Logs e Monitoramento</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <LogsMonitoramento tenantId={tenantId} />
+          </Accordion.Body>
+        </Accordion.Item>
+      </Accordion>
     </Container>
   );
 }

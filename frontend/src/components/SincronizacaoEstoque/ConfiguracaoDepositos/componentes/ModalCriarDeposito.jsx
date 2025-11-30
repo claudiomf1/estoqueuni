@@ -1,6 +1,6 @@
 import React from 'react';
-import { Modal, Form, Button, Alert, Spinner } from 'react-bootstrap';
-import { Plus } from 'react-bootstrap-icons';
+import { Modal, Form, Button, Alert, Spinner, Badge } from 'react-bootstrap';
+import { Plus, Building } from 'react-bootstrap-icons';
 
 export default function ModalCriarDeposito({
   mostrar,
@@ -9,8 +9,15 @@ export default function ModalCriarDeposito({
   setNovoDeposito,
   criarDeposito,
   isLoading,
-  erro
+  erro,
+  contaSelecionada,
+  contasBling
 }) {
+  // Encontrar o nome da conta selecionada
+  const contaAtual = contasBling?.find(
+    conta => (conta.blingAccountId || conta._id || conta.id) === contaSelecionada
+  );
+  const nomeConta = contaAtual?.accountName || contaAtual?.store_name || 'Conta sem nome';
   const handleCriar = () => {
     if (!novoDeposito.descricao || !novoDeposito.descricao.trim()) {
       return;
@@ -27,6 +34,17 @@ export default function ModalCriarDeposito({
         </Modal.Title>
       </Modal.Header>
       <Modal.Body>
+        {contaSelecionada && (
+          <Alert variant="info" className="mb-3">
+            <Building className="me-2" />
+            <strong>Conta Bling:</strong>{' '}
+            <Badge bg="primary">{nomeConta}</Badge>
+            <br />
+            <small className="text-muted">
+              O depósito será criado nesta conta Bling
+            </small>
+          </Alert>
+        )}
         <Form>
           <Form.Group className="mb-3">
             <Form.Label>Nome do Depósito *</Form.Label>

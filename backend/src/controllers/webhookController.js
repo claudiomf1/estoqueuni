@@ -1,12 +1,37 @@
 import { adicionarEventoNaFila } from '../services/queueService.js';
+import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
+import { processarWebhookVenda } from '../utils/processarWebhookVenda.js';
 
 /**
  * Controller para receber webhooks do Bling
  */
 class WebhookController {
   /**
+   * Busca tenantId a partir do blingAccountId
+   * @param {string} blingAccountId - ID da conta Bling
+   * @returns {Promise<string|null>} tenantId ou null se não encontrado
+   */
+  async buscarTenantPorBlingAccount(blingAccountId) {
+    if (!blingAccountId) {
+      return null;
+    }
+
+    try {
+      const config = await ConfiguracaoSincronizacao.findOne({
+        'contasBling.blingAccountId': blingAccountId,
+        'contasBling.isActive': true,
+      });
+
+      return config?.tenantId || null;
+    } catch (error) {
+      console.error('[Webhook] ❌ Erro ao buscar tenant:', error);
+      return null;
+    }
+  }
+
+  /**
    * Recebe webhook do Bling e adiciona evento na fila
-   * POST /api/webhooks/bling
+   * POST /api/webhooks/bling?tenantId=xxx (opcional)
    * 
    * IMPORTANTE: Responde imediatamente (< 2 segundos) e processa em background
    */
@@ -22,6 +47,7 @@ class WebhookController {
           'content-type': req.headers['content-type'],
         },
         bodyKeys: Object.keys(req.body || {}),
+        query: req.query,
       });
       
       // Validação básica do body
@@ -33,65 +59,113 @@ class WebhookController {
           warning: 'Body inválido ou vazio',
         });
       }
-      
-      // Extrair dados do evento
-      const evento = {
-        produtoId: req.body.produtoId || req.body.idProduto || req.body.productId,
-        eventoId: req.body.eventoId || req.body.idEvento || req.body.eventId,
-        depositoId: req.body.depositoId || req.body.idDeposito || req.body.depositId,
-        tenantId: req.body.tenantId || req.query.tenantId,
-        blingAccountId: req.body.blingAccountId || req.body.accountId,
-        tipo: req.body.tipo || req.body.type || 'estoque',
-        dados: req.body.dados || req.body.data || req.body,
-        recebidoEm: new Date().toISOString(),
-        headers: {
-          'user-agent': req.headers['user-agent'],
-          'x-forwarded-for': req.headers['x-forwarded-for'],
-        },
-      };
-      
-      // Validação básica da estrutura
-      if (!evento.produtoId && !evento.eventoId) {
-        console.warn('[Webhook] ⚠️ Evento sem produtoId ou eventoId:', evento);
+
+      // Tentar obter tenantId de várias formas
+      let tenantId = req.body.tenantId || req.query.tenantId || null;
+      let blingAccountId = req.body.blingAccountId || req.body.accountId || req.body.contaBlingId || null;
+
+      // Se não tem tenantId mas tem blingAccountId, buscar no banco
+      if (!tenantId && blingAccountId) {
+        tenantId = await this.buscarTenantPorBlingAccount(blingAccountId);
+        if (tenantId) {
+          console.log(`[Webhook] 🔍 TenantId identificado via blingAccountId: ${tenantId}`);
+        }
+      }
+
+      // Processar webhook (suporta vendas e eventos de estoque)
+      const eventos = processarWebhookVenda(req.body, tenantId, blingAccountId);
+
+      if (!eventos || eventos.length === 0) {
+        console.warn('[Webhook] ⚠️ Nenhum evento extraído do webhook');
         // Ainda assim responde 200
         return res.status(200).json({
           received: true,
-          warning: 'Evento sem identificadores obrigatórios',
+          warning: 'Nenhum evento processável encontrado',
+          bodyKeys: Object.keys(req.body || {}),
         });
       }
-      
+
+      console.log(`[Webhook] 📦 ${eventos.length} evento(s) extraído(s) do webhook`);
+
       // Responde IMEDIATAMENTE (< 2 segundos)
       const tempoResposta = Date.now() - inicioProcessamento;
       if (tempoResposta > 2000) {
         console.warn(`[Webhook] ⚠️ Resposta demorou ${tempoResposta}ms (deveria ser < 2000ms)`);
       }
       
+      // Atualizar última requisição do webhook (se tenantId identificado)
+      if (tenantId) {
+        setImmediate(async () => {
+          try {
+            const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
+            if (config) {
+              config.atualizarUltimaRequisicaoWebhook();
+              await config.save();
+            }
+          } catch (error) {
+            // Não falha se não conseguir atualizar
+            console.warn('[Webhook] ⚠️ Erro ao atualizar última requisição:', error.message);
+          }
+        });
+      }
+
       res.status(200).json({
         received: true,
         timestamp: new Date().toISOString(),
+        eventosProcessados: eventos.length,
       });
       
       // Processamento assíncrono (não bloqueia a resposta)
       setImmediate(async () => {
         try {
-          // Adicionar evento na fila
-          const resultado = await adicionarEventoNaFila('processar-evento', evento, {
-            jobId: evento.eventoId 
-              ? `evento-${evento.produtoId}-${evento.eventoId}` 
-              : `evento-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-          });
-          
-          console.log('[Webhook] ✅ Evento adicionado na fila:', {
-            produtoId: evento.produtoId,
-            eventoId: evento.eventoId,
-            depositoId: evento.depositoId,
-            metodo: resultado.method,
-            jobId: resultado.jobId,
-          });
+          let eventosAdicionados = 0;
+          let eventosIgnorados = 0;
+
+          // Adicionar cada evento na fila
+          for (const evento of eventos) {
+            try {
+              // Se não tem tenantId ainda, tentar buscar novamente
+              if (!evento.tenantId && evento.blingAccountId) {
+                evento.tenantId = await this.buscarTenantPorBlingAccount(evento.blingAccountId);
+              }
+
+              // Se ainda não tem tenantId, logar aviso mas processar mesmo assim
+              if (!evento.tenantId) {
+                console.warn(`[Webhook] ⚠️ Evento sem tenantId - Produto: ${evento.produtoId}`);
+              }
+
+              const jobId = evento.eventoId 
+                ? `evento-${evento.produtoId}-${evento.eventoId}` 
+                : `evento-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+              // Adicionar evento na fila (formato esperado pelo worker: { evento, tenantId })
+              const resultado = await adicionarEventoNaFila('processar-evento', {
+                evento: evento,
+                tenantId: evento.tenantId,
+              }, {
+                jobId: jobId,
+              });
+              
+              eventosAdicionados++;
+              console.log('[Webhook] ✅ Evento adicionado na fila:', {
+                produtoId: evento.produtoId,
+                eventoId: evento.eventoId,
+                depositoId: evento.depositoId,
+                tenantId: evento.tenantId || 'não identificado',
+                metodo: resultado.method,
+                jobId: resultado.jobId,
+              });
+            } catch (errorEvento) {
+              eventosIgnorados++;
+              console.error('[Webhook] ❌ Erro ao adicionar evento individual:', errorEvento);
+            }
+          }
+
+          console.log(`[Webhook] 📊 Resumo: ${eventosAdicionados} adicionados, ${eventosIgnorados} ignorados`);
         } catch (error) {
           // Tratamento gracioso: não quebra se fila estiver indisponível
-          console.error('[Webhook] ❌ Erro ao adicionar evento na fila:', error);
-          console.error('[Webhook] ⚠️ Evento será perdido, mas webhook foi aceito');
+          console.error('[Webhook] ❌ Erro ao adicionar eventos na fila:', error);
+          console.error('[Webhook] ⚠️ Eventos serão perdidos, mas webhook foi aceito');
           
           // TODO: Em produção, considerar salvar em banco como fallback
           // ou enviar para dead letter queue

@@ -2,6 +2,7 @@ import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Container, Row, Col, Card, Button, Form, Alert, Modal } from 'react-bootstrap';
 import { AuthContext } from '../context/AuthContext';
+import claudioiaLogo from './claudioia-logo.png';
 import './Landing.css';
 
 export default function Landing() {
@@ -374,19 +375,44 @@ export default function Landing() {
 
       {/* Footer */}
       <footer className="landing-footer">
-        <Container>
-          <Row>
-            <Col md={6}>
-              <h5>EstoqueUni</h5>
-              <p>Sistema de sincronização automática de estoques compartilhados</p>
-            </Col>
-            <Col md={6} className="text-md-end">
-              <p className="mb-0">
-                &copy; {new Date().getFullYear()} EstoqueUni. Todos os direitos reservados.
-              </p>
-            </Col>
-          </Row>
-        </Container>
+        <div className="footer-content">
+          <p className="footer-copyright">
+            © {new Date().getFullYear()} EstoqueUni - Todos os direitos reservados
+          </p>
+          <div className="powered-by">
+            <span>Sistema desenvolvido pela</span>
+            <a
+              href="https://claudioia.com.br"
+              target="_blank"
+              rel="noopener"
+              className="claudioia-link"
+              title="ClaudioIA - Plataforma de IA tipo ChatGPT e também desenvolve lojas virtuais e sistemas para e-commerce"
+            >
+              <img
+                src={claudioiaLogo}
+                alt="ClaudioIA - Inteligência Artificial Conversacional"
+                className="claudioia-logo"
+                loading="lazy"
+                decoding="async"
+              />
+              <span>ClaudioIA</span>
+            </a>
+          </div>
+          <p className="claudioia-description">
+            A{' '}
+            <a
+              href="https://claudioia.com.br"
+              target="_blank"
+              rel="noopener"
+              className="claudioia-text-link"
+            >
+              ClaudioIA
+            </a>{' '}
+            é uma plataforma de Inteligência Artificial conversacional similar ao ChatGPT, com
+            especialistas em diversas áreas. Também desenvolve lojas virtuais e sistemas
+            personalizados para e-commerce.
+          </p>
+        </div>
       </footer>
 
       {/* Login Modal */}

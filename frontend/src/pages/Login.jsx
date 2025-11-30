@@ -2,9 +2,10 @@ import { useState, useContext, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { PersonFill, LockFill, EyeFill, EyeSlashFill, CheckCircleFill, ShieldFill, LightningChargeFill, BarChartFill } from 'react-bootstrap-icons';
+import claudioiaLogo from './claudioia-logo.png';
 import './Login.css';
 
-export default function Login() {
+function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -296,6 +297,50 @@ export default function Login() {
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="login-footer">
+        <div className="footer-content">
+          <p className="footer-copyright">
+            © {new Date().getFullYear()} EstoqueUni - Todos os direitos reservados
+          </p>
+          <div className="powered-by">
+            <span>Sistema desenvolvido pela</span>
+            <a
+              href="https://claudioia.com.br"
+              target="_blank"
+              rel="noopener"
+              className="claudioia-link"
+              title="ClaudioIA - Plataforma de IA tipo ChatGPT e também desenvolve lojas virtuais e sistemas para e-commerce"
+            >
+              <img
+                src={claudioiaLogo}
+                alt="ClaudioIA - Inteligência Artificial Conversacional"
+                className="claudioia-logo"
+                loading="lazy"
+                decoding="async"
+              />
+              <span>ClaudioIA</span>
+            </a>
+          </div>
+          <p className="claudioia-description">
+            A{' '}
+            <a
+              href="https://claudioia.com.br"
+              target="_blank"
+              rel="noopener"
+              className="claudioia-text-link"
+            >
+              ClaudioIA
+            </a>{' '}
+            é uma plataforma de Inteligência Artificial conversacional similar ao ChatGPT, com
+            especialistas em diversas áreas. Também desenvolve lojas virtuais e sistemas
+            personalizados para e-commerce.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
+
+export default Login;

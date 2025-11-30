@@ -136,24 +136,9 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
                 <Badge bg={status.ativo ? 'success' : 'secondary'}>
                   {status.ativo ? 'Ativo' : 'Inativo'}
                 </Badge>
-              </div>
-            </div>
-          </Col>
-
-          <Col md={3} className="mb-3">
-            <div className="d-flex align-items-center">
-              <div className="me-3">
-                {status.webhookAtivo ? (
-                  <CheckCircle size={32} className="text-success" />
-                ) : (
-                  <XCircle size={32} className="text-warning" />
-                )}
-              </div>
-              <div>
-                <div className="fw-bold">Webhook</div>
-                <Badge bg={status.webhookAtivo ? 'success' : 'warning'}>
-                  {status.webhookAtivo ? 'Ativo' : 'Inativo'}
-                </Badge>
+                <small className="text-muted d-block mt-1">
+                  Status geral da sincronização para todas as contas Bling
+                </small>
               </div>
             </div>
           </Col>
@@ -187,6 +172,44 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
                   {formatarData(status.ultimaSincronizacao)}
                 </small>
               </div>
+            </div>
+          </Col>
+        </Row>
+
+        <hr />
+
+        <Row>
+          <Col md={12} className="mb-3">
+            <div>
+              <div className="fw-bold mb-3">Notificações Automáticas (Webhook) por Conta Bling</div>
+              {status.webhook?.contasBling && status.webhook.contasBling.length > 0 ? (
+                <div className="d-flex flex-wrap gap-3">
+                  {status.webhook.contasBling.map((conta, index) => (
+                    <div key={conta.blingAccountId || index} className="d-flex align-items-center border rounded p-3 bg-light" style={{ minWidth: '250px' }}>
+                      <div className="me-3">
+                        {conta.webhookConfigurado ? (
+                          <CheckCircle size={24} className="text-success" />
+                        ) : (
+                          <XCircle size={24} className="text-warning" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="fw-semibold">{conta.accountName || conta.blingAccountId}</div>
+                        <Badge bg={conta.webhookConfigurado ? 'success' : 'warning'} className="mt-1">
+                          {conta.webhookConfigurado ? 'Webhook Ativo' : 'Webhook Inativo'}
+                        </Badge>
+                        {conta.webhookConfiguradoEm && (
+                          <small className="text-muted d-block mt-1">
+                            Configurado em: {formatarData(conta.webhookConfiguradoEm)}
+                          </small>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-muted">Nenhuma conta Bling configurada</div>
+              )}
             </div>
           </Col>
         </Row>

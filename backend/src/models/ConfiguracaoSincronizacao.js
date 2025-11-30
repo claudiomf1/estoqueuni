@@ -41,6 +41,14 @@ const configuracaoSincronizacaoSchema = new mongoose.Schema({
       type: Boolean,
       default: true,
     },
+    webhookConfigurado: {
+      type: Boolean,
+      default: false,
+    },
+    webhookConfiguradoEm: {
+      type: Date,
+      default: null,
+    },
     depositosPrincipais: [{
       type: String,
       trim: true,

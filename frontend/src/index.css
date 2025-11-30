@@ -37,6 +37,22 @@ code {
   }
 }
 
+/* Animação pulsante para botão de webhook não configurado */
+.pulsing-button {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+  }
+  50% {
+    opacity: 0.9;
+    box-shadow: 0 0 0 10px rgba(255, 193, 7, 0);
+  }
+}
+
 
 
 

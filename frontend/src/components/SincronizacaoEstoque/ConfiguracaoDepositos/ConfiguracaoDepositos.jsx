@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Form, Button, Alert, Spinner } from 'react-bootstrap';
-import { Save, Building, Plus } from 'react-bootstrap-icons';
+import { Save, Building } from 'react-bootstrap-icons';
 import { sincronizacaoApi } from '../../../services/sincronizacaoApi';
 import { validarConfiguracao } from './utilitarios';
 import {
   manipularMudancaDeposito,
-  adicionarDeposito,
   removerDeposito,
   alternarDepositoPrincipal,
   alternarDepositoCompartilhado,
@@ -88,9 +87,6 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
     manipularMudancaDeposito(depositos, index, field, value, setDepositos, setErro);
   };
 
-  const handleAdicionarDeposito = () => {
-    adicionarDeposito(depositos, setDepositos);
-  };
 
   const handleRemoverDeposito = (index) => {
     const deposito = depositos[index];
@@ -183,7 +179,8 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
 
     const validacao = validarConfiguracao(depositos, regraSincronizacao);
     if (!validacao.valido) {
-      setErro(validacao.erros[0]);
+      // Mostrar todos os erros
+      setErro(validacao.erros.join(' '));
       return;
     }
 
@@ -198,6 +195,9 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
       onConfigUpdate
     );
   };
+
+  // Verificar se há depósitos sem nome para desabilitar botão de salvar
+  const temDepositosSemNome = depositos.some(d => !d.nome || !d.nome.trim());
 
   const handleCriarDeposito = () => {
     if (!novoDeposito.descricao || !novoDeposito.descricao.trim()) {
@@ -247,20 +247,9 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
   return (
     <Card className="mb-4">
       <Card.Header>
-        <div className="d-flex align-items-center justify-content-between">
-          <div className="d-flex align-items-center">
-            <Building className="me-2" />
-            <h5 className="mb-0">Configuração de Depósitos</h5>
-          </div>
-          <Button
-            variant="outline-primary"
-            size="sm"
-            onClick={handleAdicionarDeposito}
-            disabled={salvando}
-          >
-            <Plus className="me-1" />
-            Adicionar Depósito
-          </Button>
+        <div className="d-flex align-items-center">
+          <Building className="me-2" />
+          <h5 className="mb-0">Configuração de Depósitos</h5>
         </div>
       </Card.Header>
       <Card.Body>
@@ -313,7 +302,8 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
           <Button
             variant="primary"
             onClick={handleSalvar}
-            disabled={salvando || depositos.length === 0}
+            disabled={salvando || depositos.length === 0 || temDepositosSemNome}
+            title={temDepositosSemNome ? 'Corrija os depósitos sem nome antes de salvar' : ''}
           >
             {salvando ? (
               <>
@@ -327,6 +317,11 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
               </>
             )}
           </Button>
+          {temDepositosSemNome && (
+            <Alert variant="warning" className="mt-2 mb-0">
+              <strong>Atenção:</strong> Existem depósitos sem nome. Preencha o nome de todos os depósitos antes de salvar.
+            </Alert>
+          )}
         </div>
       </Card.Body>
 
@@ -341,6 +336,8 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
         criarDeposito={handleCriarDeposito}
         isLoading={criarDepositoMutation.isLoading}
         erro={criarDepositoMutation.isError ? (criarDepositoMutation.error?.mensagem || criarDepositoMutation.error?.message || 'Erro ao criar depósito') : null}
+        contaSelecionada={contaSelecionada}
+        contasBling={contasBling}
       />
 
       <ModalConfirmacaoDelecao

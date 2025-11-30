@@ -31,12 +31,20 @@ export function extrairListaContas(response) {
 export function validarConfiguracao(depositos, regraSincronizacao) {
   const erros = [];
 
-  // Validar que todos os depósitos têm id e nome
-  const depositosInvalidos = depositos.filter(
-    d => !d.id || !d.id.trim() || !d.nome || !d.nome.trim()
+  // Validar que todos os depósitos têm nome
+  const depositosSemNome = depositos.filter(
+    d => !d.nome || !d.nome.trim()
   );
-  if (depositosInvalidos.length > 0) {
-    erros.push('Todos os depósitos devem ter um ID e nome válidos.');
+  if (depositosSemNome.length > 0) {
+    erros.push(`Existem ${depositosSemNome.length} depósito(s) sem nome. Todos os depósitos devem ter um nome válido.`);
+  }
+
+  // Validar que todos os depósitos têm id (exceto compartilhados que podem não ter)
+  const depositosSemId = depositos.filter(
+    d => d.tipo !== 'compartilhado' && (!d.id || !d.id.trim())
+  );
+  if (depositosSemId.length > 0) {
+    erros.push(`Existem ${depositosSemId.length} depósito(s) principal(is) sem ID. Depósitos principais devem ter um ID válido.`);
   }
 
   // Validar IDs únicos

@@ -114,7 +114,7 @@ export default function HistoricoSincronizacoes({ tenantId }) {
                 onChange={(e) => handleFiltroChange('origem', e.target.value)}
               >
                 <option value="">Todas</option>
-                <option value="webhook">Webhook</option>
+                <option value="webhook">Notificações Automáticas (Webhook)</option>
                 <option value="cronjob">Cronjob</option>
                 <option value="manual">Manual</option>
               </Form.Select>
@@ -186,22 +186,24 @@ export default function HistoricoSincronizacoes({ tenantId }) {
                             {isExpanded ? <ChevronUp /> : <ChevronDown />}
                           </Button>
                         </td>
-                        <td>{formatarData(item.dataHora || item.criadoEm)}</td>
+                        <td>{formatarData(item.processadoEm || item.dataHora || item.criadoEm || item.createdAt)}</td>
                         <td>
                           <Badge bg={
                             item.origem === 'webhook' ? 'primary' :
                             item.origem === 'cronjob' ? 'info' : 'secondary'
                           }>
-                            {item.origem || 'Manual'}
+                            {item.origem === 'webhook' ? 'Notificações Automáticas (Webhook)' :
+                             item.origem === 'cronjob' ? 'Cronjob' : 
+                             item.origem || 'Manual'}
                           </Badge>
                         </td>
-                        <td>{item.sku || 'Todos'}</td>
+                        <td>{item.produtoId || item.sku || '-'}</td>
                         <td>
-                          <Badge bg={item.status === 'sucesso' ? 'success' : 'danger'}>
-                            {item.status === 'sucesso' ? 'Sucesso' : 'Erro'}
+                          <Badge bg={(item.sucesso !== undefined ? item.sucesso : item.status === 'sucesso') ? 'success' : 'danger'}>
+                            {(item.sucesso !== undefined ? item.sucesso : item.status === 'sucesso') ? 'Sucesso' : 'Erro'}
                           </Badge>
                         </td>
-                        <td>{item.produtosProcessados || item.totalProcessado || 0}</td>
+                        <td>{item.produtosProcessados || item.totalProcessado || 1}</td>
                       </tr>
                       {isExpanded && (
                         <tr>

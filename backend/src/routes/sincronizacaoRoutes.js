@@ -30,6 +30,7 @@ router.get('/logs', controller.obterLogs.bind(controller));
 
 // ===== WEBHOOK E CRONJOB =====
 router.put('/webhook', controller.atualizarWebhook.bind(controller));
+router.put('/webhook/marcar-conta-configurada', controller.marcarContaWebhookConfigurada.bind(controller));
 router.put('/cronjob', controller.atualizarCronjob.bind(controller));
 
 export default router;

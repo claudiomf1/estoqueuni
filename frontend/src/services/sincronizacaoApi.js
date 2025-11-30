@@ -135,6 +135,18 @@ export const sincronizacaoApi = {
       ...(produtoId ? { produtoId, sku: produtoId } : {})
     }),
 
+  /**
+   * Marca uma conta Bling como tendo webhook configurado
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @returns {Promise} Resposta com conta atualizada
+   */
+  marcarContaWebhookConfigurada: (tenantId, blingAccountId) =>
+    api.put('/webhook/marcar-conta-configurada', {
+      tenantId,
+      blingAccountId
+    }),
+
 };
 
 export default sincronizacaoApi;
