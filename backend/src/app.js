@@ -38,6 +38,21 @@ app.get(['/', '/index.htm'], (req, res) => {
 // Rota pública para obter token (usada pelo backend-ai)
 app.post('/getToken', getTokenHandler);
 
+// Fallback simples para sondagens comuns que geram 404 ruidosos
+app.all(['/api', '/api/graphql', '/api/gql'], (req, res) => {
+  res.status(200).json({
+    service: 'estoqueuni-backend',
+    message: 'Use endpoints específicos em /api/*',
+  });
+});
+
+app.get(['/api/swagger.json', '/api-docs/swagger.json'], (req, res) => {
+  res.status(404).json({
+    service: 'estoqueuni-backend',
+    error: 'Documentação Swagger não disponível neste serviço.',
+  });
+});
+
 // API routes
 app.use('/api', routes);
 

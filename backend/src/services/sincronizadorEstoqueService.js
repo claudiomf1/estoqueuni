@@ -225,12 +225,22 @@ class SincronizadorEstoqueService {
       try {
         let produtoInfo = produtoCache.get(deposito.contaBlingId);
         if (!produtoInfo) {
-          const produtoBling = await blingService.getProdutoPorSku(
+          let produtoBling = await blingService.getProdutoPorSku(
             sku,
             tenantId,
             deposito.contaBlingId,
             true
           );
+
+          // Fallback: se SKU for numérico/id e não retornar, tenta por ID diretamente
+          if (!produtoBling) {
+            produtoBling = await blingService.getProdutoPorId(
+              sku,
+              tenantId,
+              deposito.contaBlingId,
+              true
+            );
+          }
 
           if (!produtoBling || !produtoBling.id) {
             throw new Error('Produto não encontrado no Bling para esta conta');
@@ -251,6 +261,10 @@ class SincronizadorEstoqueService {
           };
           produtoCache.set(deposito.contaBlingId, produtoInfo);
         }
+
+        console.log(
+          `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${deposito.contaBlingId} com quantidade ${quantidade} (tenant ${tenantId}, origem ${origem})`
+        );
 
         const retornoApi = await blingService.registrarMovimentacaoEstoque({
           tenantId,

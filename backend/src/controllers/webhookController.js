@@ -62,6 +62,8 @@ class WebhookController {
         timeZone: 'America/Sao_Paulo',
       });
       const tenantIdInicial = req.body?.tenantId || req.query?.tenantId || null;
+      const payloadRaw = req.body || {};
+      const payloadPreview = JSON.stringify(payloadRaw).slice(0, 4000); // limitar para log
 
       // Log do recebimento
       console.log('[Webhook] 📥 Webhook recebido do Bling:', {
@@ -74,6 +76,7 @@ class WebhookController {
         bodyKeys: Object.keys(req.body || {}),
         query: req.query,
         tenantDetectado: tenantIdInicial,
+        payloadPreview,
       });
       
       // Validação básica do body

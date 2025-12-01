@@ -354,40 +354,108 @@ class BlingService {
    * @returns {Promise<Object|null>} Produto encontrado ou null
    */
   async getProdutoPorSku(sku, tenantId, blingAccountId, incluirDetalhes = false) {
-    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const tentar = async (tentativa = 1) => {
+      const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
-    try {
-      // Campos básicos sempre incluídos
-      let campos = 'codigo,estoque,nome,id,depositos';
-      
-      // Se precisar de detalhes, incluir formato e tipo para detectar produtos compostos
-      if (incluirDetalhes) {
-        campos += ',formato,tipo,situacao';
-      }
-
-      const response = await axios.get(`${this.apiUrl}/produtos`, {
-        params: {
-          codigo: sku,
-          campos: campos
-        },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
+      try {
+        // Campos básicos sempre incluídos
+        let campos = 'codigo,estoque,nome,id,depositos';
+        
+        // Se precisar de detalhes, incluir formato e tipo para detectar produtos compostos
+        if (incluirDetalhes) {
+          campos += ',formato,tipo,situacao';
         }
-      });
 
-      const produtos = response.data?.data || [];
-      return produtos.length > 0 ? produtos[0] : null;
-    } catch (error) {
-      if (error.response?.status === 404) {
-        return null;
+        const response = await axios.get(`${this.apiUrl}/produtos`, {
+          params: {
+            codigo: sku,
+            campos: campos
+          },
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const produtos = response.data?.data || [];
+        return produtos.length > 0 ? produtos[0] : null;
+      } catch (error) {
+        if (error.response?.status === 404) {
+          return null;
+        }
+        if (error.response?.status === 429 && tentativa < 3) {
+          const retryAfter =
+            Number(error.response.headers?.['retry-after']) * 1000 || 500;
+          console.warn(
+            `[BLING-SERVICE] ⚠️ Rate limit ao buscar SKU ${sku} (tentativa ${tentativa}). Retentando em ${retryAfter}ms.`
+          );
+          await sleep(retryAfter);
+          return tentar(tentativa + 1);
+        }
+        console.error(
+          `❌ Erro ao buscar produto por SKU ${sku}:`,
+          error.response?.data || error.message
+        );
+        throw new Error('Falha ao buscar produto no Bling');
       }
-      console.error(
-        `❌ Erro ao buscar produto por SKU ${sku}:`,
-        error.response?.data || error.message
-      );
-      throw new Error('Falha ao buscar produto no Bling');
-    }
+    };
+
+    return tentar(1);
+  }
+
+  /**
+   * Busca produto pelo ID interno do Bling
+   * @param {string|number} idProduto
+   * @param {string} tenantId
+   * @param {string} blingAccountId
+   * @param {boolean} incluirDetalhes
+   * @returns {Promise<Object|null>}
+   */
+  async getProdutoPorId(idProduto, tenantId, blingAccountId, incluirDetalhes = false) {
+    if (!idProduto) return null;
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const tentar = async (tentativa = 1) => {
+      const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+      try {
+        let campos = 'codigo,estoque,nome,id,depositos';
+        if (incluirDetalhes) {
+          campos += ',formato,tipo,situacao';
+        }
+
+        const response = await axios.get(`${this.apiUrl}/produtos/${idProduto}`, {
+          params: { campos },
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        return response.data?.data || null;
+      } catch (error) {
+        if (error.response?.status === 404) {
+          return null;
+        }
+        if (error.response?.status === 429 && tentativa < 3) {
+          const retryAfter =
+            Number(error.response.headers?.['retry-after']) * 1000 || 500;
+          console.warn(
+            `[BLING-SERVICE] ⚠️ Rate limit ao buscar produtoId ${idProduto} (tentativa ${tentativa}). Retentando em ${retryAfter}ms.`
+          );
+          await sleep(retryAfter);
+          return tentar(tentativa + 1);
+        }
+        console.error(
+          `❌ Erro ao buscar produto por ID ${idProduto}:`,
+          error.response?.data || error.message
+        );
+        throw new Error('Falha ao buscar produto no Bling');
+      }
+    };
+
+    return tentar(1);
   }
 
   /**
@@ -437,58 +505,73 @@ class BlingService {
       throw new Error('produtoId e depositoId são obrigatórios para consultar saldo');
     }
 
-    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const tentar = async (tentativa = 1) => {
+      const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
-    try {
-      const response = await axios.get(
-        `${this.apiUrl}/estoques/saldos/${depositoId}`,
-        {
-          params: {
-            idsProdutos: [produtoId],
-          },
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const registros = response.data?.data || [];
-      const registro = registros.find((item) => item?.produto?.id === produtoId);
-      if (!registro) {
-        return 0;
-      }
-
-      return (
-        Number(registro.saldoVirtualTotal) ||
-        Number(registro.saldoFisicoTotal) ||
-        0
-      );
-    } catch (error) {
-      const data = error.response?.data;
-      const status = error.response?.status;
-      const reason =
-        data?.error?.description ||
-        data?.error?.message ||
-        data?.message ||
-        error.message;
-
-      console.error(
-        `[BLING-SERVICE] ❌ Erro ao buscar saldo do produto ${produtoId} no depósito ${depositoId}:`,
-        JSON.stringify(
+      try {
+        const response = await axios.get(
+          `${this.apiUrl}/estoques/saldos/${depositoId}`,
           {
-            status,
-            statusText: error.response?.statusText,
-            data,
-            reason,
-          },
-          null,
-          2
-        )
-      );
+            params: {
+              idsProdutos: [produtoId],
+            },
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
 
-      throw new Error(`Falha ao consultar saldo do depósito ${depositoId}: ${reason}`);
-    }
+        const registros = response.data?.data || [];
+        const registro = registros.find((item) => item?.produto?.id === produtoId);
+        if (!registro) {
+          return 0;
+        }
+
+        return (
+          Number(registro.saldoVirtualTotal) ||
+          Number(registro.saldoFisicoTotal) ||
+          0
+        );
+      } catch (error) {
+        if (error.response?.status === 429 && tentativa < 3) {
+          const retryAfter =
+            Number(error.response.headers?.['retry-after']) * 1000 || 500;
+          console.warn(
+            `[BLING-SERVICE] ⚠️ Rate limit ao consultar saldo (produto ${produtoId}, depósito ${depositoId}) tentativa ${tentativa}. Retentando em ${retryAfter}ms.`
+          );
+          await sleep(retryAfter);
+          return tentar(tentativa + 1);
+        }
+
+        const data = error.response?.data;
+        const status = error.response?.status;
+        const reason =
+          data?.error?.description ||
+          data?.error?.message ||
+          data?.message ||
+          error.message;
+
+        console.error(
+          `[BLING-SERVICE] ❌ Erro ao buscar saldo do produto ${produtoId} no depósito ${depositoId}:`,
+          JSON.stringify(
+            {
+              status,
+              statusText: error.response?.statusText,
+              data,
+              reason,
+            },
+            null,
+            2
+          )
+        );
+
+        throw new Error(`Falha ao consultar saldo do depósito ${depositoId}: ${reason}`);
+      }
+    };
+
+    return tentar(1);
   }
 
   /**

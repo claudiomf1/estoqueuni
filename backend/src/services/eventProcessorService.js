@@ -20,6 +20,15 @@ class EventProcessorService {
    * @returns {Promise<Object>} Resultado do processamento
    */
   async processarEvento(evento, tenantId = null) {
+    if (!evento || typeof evento !== 'object') {
+      console.warn('[EVENT-PROCESSOR] ⚠️ Evento inválido ou vazio:', evento);
+      return {
+        ignorado: true,
+        motivo: 'Evento inválido ou vazio',
+        evento,
+      };
+    }
+
     const tenantIdFinal = tenantId || evento.tenantId;
 
     if (!tenantIdFinal) {
@@ -230,34 +239,18 @@ class EventProcessorService {
 
   /**
    * Filtra evento por depósito (genérico)
-   * Verifica se o depósito está na lista de depósitos principais monitorados
-   * @param {string} depositoId - ID do depósito
-   * @param {Object} config - Configuração de sincronização
-   * @returns {boolean} true se deve processar, false caso contrário
+   *
+   * Para webhooks queremos processar qualquer depósito que chegar,
+   * pois a sincronização já usa a configuração (principais/compartilhados)
+   * para decidir o que somar/atualizar. Aqui não devemos bloquear.
+   *
+   * @returns {boolean} sempre true (apenas loga)
    */
   filtrarPorDeposito(depositoId, config) {
-    if (!depositoId || !config) {
-      return false;
-    }
-
-    // Verifica se o depósito está na lista de depósitos principais
-    const depositosPrincipais = config.regraSincronizacao?.depositosPrincipais || [];
-
-    if (!Array.isArray(depositosPrincipais) || depositosPrincipais.length === 0) {
-      // Se não há depósitos configurados, processa todos (comportamento padrão)
-      console.log(
-        `[EVENT-PROCESSOR] ⚠️ Nenhum depósito principal configurado, processando todos os eventos`
-      );
-      return true;
-    }
-
-    const deveProcessar = depositosPrincipais.includes(depositoId);
-
-    console.log(
-      `[EVENT-PROCESSOR] 🔍 Filtro de depósito - Depósito: ${depositoId}, Monitorado: ${deveProcessar}, Lista: ${depositosPrincipais.join(', ')}`
-    );
-
-    return deveProcessar;
+    const depLog = depositoId ? `Depósito ${depositoId}` : 'Depósito não informado';
+    const tenantLog = config?.tenantId ? ` - tenant ${config.tenantId}` : '';
+    console.log(`[EVENT-PROCESSOR] 🔍 Processando evento de webhook: ${depLog}${tenantLog}`);
+    return true;
   }
 
   /**
@@ -291,8 +284,4 @@ class EventProcessorService {
 }
 
 export default new EventProcessorService();
-
-
-
-
 

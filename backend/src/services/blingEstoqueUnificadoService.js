@@ -112,12 +112,22 @@ class BlingEstoqueUnificadoService {
     // Processar todas as contas em paralelo
     const promessas = contas.map(async (conta) => {
       try {
-        const produto = await blingService.getProdutoPorSku(
+        let produto = await blingService.getProdutoPorSku(
           skuNormalizado,
           tenantId,
           conta.blingAccountId,
           true
         );
+
+        // Fallback: se não achou pelo SKU, tenta pelo ID (caso webhook traga productId)
+        if (!produto) {
+          produto = await blingService.getProdutoPorId(
+            skuNormalizado,
+            tenantId,
+            conta.blingAccountId,
+            true
+          );
+        }
 
         const saldosDepositos = extrairSaldosDepositos(produto);
         let estoqueConta = Object.values(saldosDepositos).reduce(
@@ -130,19 +140,31 @@ class BlingEstoqueUnificadoService {
             Number(produto?.estoque?.saldoVirtualTotal) ||
             Number(produto?.saldoInventario) ||
             0;
+      }
+
+      const saldosMonitorados = {};
+      const depositosDaConta = Object.entries(mapaDepositosMonitorados || {}).filter(
+        ([, contaId]) => contaId === conta.blingAccountId
+      );
+
+      // Só faz consultas detalhadas de depósito se tiver um produto válido
+      if (!produto?.id && depositosDaConta.length > 0) {
+        console.warn(
+          `[ESTOQUE-UNIFICADO] ⚠️ Produto não retornou id ao consultar SKU ${skuNormalizado} na conta ${conta.accountName}. Pulando consultas por depósito.`
+        );
+      }
+
+      for (const [depositoId] of depositosDaConta) {
+        if (!produto?.id) {
+          saldosMonitorados[depositoId] = 0;
+          continue;
         }
 
-        const saldosMonitorados = {};
-        const depositosDaConta = Object.entries(mapaDepositosMonitorados || {}).filter(
-          ([, contaId]) => contaId === conta.blingAccountId
-        );
-
-        for (const [depositoId] of depositosDaConta) {
-          try {
-            const saldoDeposito = await blingService.getSaldoProdutoPorDeposito(
-              produto?.id,
-              depositoId,
-              tenantId,
+        try {
+          const saldoDeposito = await blingService.getSaldoProdutoPorDeposito(
+            produto?.id,
+            depositoId,
+            tenantId,
               conta.blingAccountId
             );
             saldosMonitorados[depositoId] = saldoDeposito;

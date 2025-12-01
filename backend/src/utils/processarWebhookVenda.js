@@ -73,8 +73,16 @@ function normalizarTexto(valor) {
 }
 
 export function identificarTipoEvento(payload) {
-  const eventNome = normalizarTexto(payload.event || payload.tipo || payload.type);
-  const dataTipo = normalizarTexto(payload.data?.tipo || payload.data?.type);
+  const eventNome = normalizarTexto(
+    payload.event ||
+      payload.tipo ||
+      payload.type ||
+      payload.data?.event ||
+      payload.data?.evento
+  );
+  const dataTipo = normalizarTexto(
+    payload.data?.tipoEvento || payload.data?.tipo || payload.data?.type
+  );
 
   // Verifica se é um pedido de venda
   if (
@@ -103,6 +111,17 @@ export function identificarTipoEvento(payload) {
 
   // Verifica se tem produtoId direto (evento de estoque)
   if (payload.produtoId || payload.idProduto || payload.productId) {
+    return 'estoque';
+  }
+
+  if (
+    payload.data?.estoque ||
+    payload.data?.stock ||
+    payload.data?.produto ||
+    payload.data?.product ||
+    payload.produto ||
+    payload.product
+  ) {
     return 'estoque';
   }
 
@@ -269,6 +288,7 @@ export function processarWebhookVenda(payload, tenantId = null, blingAccountId =
       event: payload.event,
       tipo: payload.tipo,
       dataKeys: Object.keys(payload.data || {}),
+      payloadPreview: JSON.stringify(payload).slice(0, 1500),
     });
   }
 
