@@ -1,6 +1,7 @@
 import BlingConfig from '../models/BlingConfig.js';
 import blingService from './blingService.js';
 import Produto from '../models/Produto.js';
+import { getBrazilNow } from '../utils/timezone.js';
 
 /**
  * Função auxiliar para normalizar SKU
@@ -81,7 +82,7 @@ class BlingEstoqueUnificadoService {
    * @param {string} sku
    * @returns {Promise<{total: number, estoquePorConta: Object, erros: Array, detalhesPorConta: Object}>}
    */
-  async buscarEstoqueUnificado(tenantId, sku, mapaDepositosMonitorados = {}) {
+  async buscarEstoqueUnificado(tenantId, sku, mapaDepositosMonitorados = {}, contasPermitidas = []) {
     const skuNormalizado = normalizeSku(sku);
     const estoquePorConta = {};
     const detalhesPorConta = {};
@@ -93,10 +94,16 @@ class BlingEstoqueUnificadoService {
     );
 
     // Buscar todas as contas ativas do tenant
-    const contas = await BlingConfig.find({
+    let contas = (await BlingConfig.find({
       tenantId,
       is_active: true
-    });
+    })).filter((c) => c && c.is_active !== false && c.isActive !== false);
+
+    // Restringir às contas permitidas (ex.: apenas as ativas na configuração)
+    if (Array.isArray(contasPermitidas) && contasPermitidas.length > 0) {
+      const permitidas = new Set(contasPermitidas);
+      contas = contas.filter((c) => permitidas.has(c.blingAccountId));
+    }
 
     if (contas.length === 0) {
       console.log(
@@ -311,8 +318,8 @@ class BlingEstoqueUnificadoService {
               $set: {
                 estoque: total,
                 estoquePorConta: estoquePorConta,
-                ultimaSincronizacao: new Date(),
-                updatedAt: new Date()
+                ultimaSincronizacao: getBrazilNow(),
+                updatedAt: getBrazilNow()
               }
             },
             upsert: true
@@ -364,18 +371,18 @@ class BlingEstoqueUnificadoService {
     let produto = await Produto.findOne({ tenantId, sku: skuNormalizado });
 
     if (!produto) {
-      produto = new Produto({
-        tenantId,
-        sku: skuNormalizado,
-        estoque: total,
-        estoquePorConta: estoquePorConta,
-        ultimaSincronizacao: new Date()
-      });
-    } else {
-      produto.estoque = total;
-      produto.estoquePorConta = estoquePorConta;
-      produto.ultimaSincronizacao = new Date();
-    }
+        produto = new Produto({
+          tenantId,
+          sku: skuNormalizado,
+          estoque: total,
+          estoquePorConta: estoquePorConta,
+          ultimaSincronizacao: getBrazilNow()
+        });
+      } else {
+        produto.estoque = total;
+        produto.estoquePorConta = estoquePorConta;
+        produto.ultimaSincronizacao = getBrazilNow();
+      }
 
     await produto.save();
 

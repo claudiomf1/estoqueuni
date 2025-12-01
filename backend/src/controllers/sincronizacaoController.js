@@ -3,6 +3,7 @@ import BlingConfig from '../models/BlingConfig.js';
 import EventoProcessado from '../models/EventoProcessado.js';
 import Produto from '../models/Produto.js';
 import sincronizadorEstoqueService from '../services/sincronizadorEstoqueService.js';
+import { getBrazilNow } from '../utils/timezone.js';
 
 class SincronizacaoController {
   async obterConfiguracao(req, res) {
@@ -387,7 +388,7 @@ class SincronizacaoController {
       }
 
       conta.webhookConfigurado = true;
-      conta.webhookConfiguradoEm = new Date();
+      conta.webhookConfiguradoEm = getBrazilNow();
 
       await config.save();
 
@@ -441,6 +442,36 @@ class SincronizacaoController {
       return res.status(500).json({
         success: false,
         message: error.message || 'Erro ao atualizar cronjob',
+      });
+    }
+  }
+
+  async limparEstatisticas(req, res) {
+    try {
+      const tenantId = this._obterTenantId(req);
+      if (!tenantId) {
+        return res.status(400).json({
+          success: false,
+          message: 'tenantId é obrigatório',
+        });
+      }
+
+      const resultado = await EventoProcessado.deleteMany({ tenantId });
+
+      console.log(`[SINCRONIZACAO] Estatísticas limpas para tenant ${tenantId}: ${resultado.deletedCount} registros removidos`);
+
+      return res.json({
+        success: true,
+        message: `Estatísticas limpas com sucesso. ${resultado.deletedCount} registro(s) removido(s).`,
+        data: {
+          registrosRemovidos: resultado.deletedCount,
+        },
+      });
+    } catch (error) {
+      console.error('[SINCRONIZACAO] Erro ao limpar estatísticas:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Erro ao limpar estatísticas',
       });
     }
   }

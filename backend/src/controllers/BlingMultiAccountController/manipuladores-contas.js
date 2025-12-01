@@ -348,11 +348,13 @@ export const manipuladoresContas = {
         return res.status(404).json({
           success: false,
           error: 'Conta não encontrada'
+          
         });
       }
 
       conta.is_active = !conta.is_active;
       await conta.save();
+      await sincronizarContaComConfiguracao(tenantId, conta);
 
       return res.json({
         success: true,
@@ -375,3 +377,53 @@ export const manipuladoresContas = {
   }
 };
 
+async function sincronizarContaComConfiguracao(tenantId, conta) {
+  if (!tenantId || !conta || !conta.blingAccountId) {
+    return;
+  }
+
+  try {
+    const config = await ConfiguracaoSincronizacao.buscarOuCriar(tenantId);
+    if (!config) {
+      return;
+    }
+
+    if (!Array.isArray(config.contasBling)) {
+      config.contasBling = [];
+    }
+
+    let contaConfiguracao = config.contasBling.find(
+      (item) => item.blingAccountId === conta.blingAccountId
+    );
+
+    if (!contaConfiguracao) {
+      contaConfiguracao = {
+        blingAccountId: conta.blingAccountId,
+        accountName: conta.accountName || conta.store_name || 'Conta Bling',
+        isActive: conta.is_active !== false,
+        webhookConfigurado: false,
+        depositosPrincipais: [],
+        depositoCompartilhado: null,
+      };
+      config.contasBling.push(contaConfiguracao);
+    } else {
+      contaConfiguracao.isActive = conta.is_active !== false;
+      contaConfiguracao.accountName =
+        conta.accountName ||
+        conta.store_name ||
+        contaConfiguracao.accountName ||
+        'Conta Bling';
+      if (contaConfiguracao.webhookConfigurado === undefined) {
+        contaConfiguracao.webhookConfigurado = false;
+      }
+    }
+
+    config.ativo = config.contasBling.some((item) => item.isActive !== false);
+
+    await config.save();
+  } catch (error) {
+    console.warn(
+      `[BlingMultiAccountController] Falha ao sincronizar conta ${conta.blingAccountId} na ConfiguracaoSincronizacao: ${error.message}`
+    );
+  }
+}

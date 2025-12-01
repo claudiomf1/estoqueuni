@@ -1,5 +1,6 @@
 // backend/src/models/Produto.js
 import mongoose from 'mongoose';
+import { getBrazilNow } from '../utils/timezone.js';
 
 const produtoSchema = new mongoose.Schema({
   sku: {
@@ -41,11 +42,11 @@ const produtoSchema = new mongoose.Schema({
   },
   createdAt: {
     type: Date,
-    default: Date.now,
+    default: getBrazilNow,
   },
   updatedAt: {
     type: Date,
-    default: Date.now,
+    default: getBrazilNow,
   },
 });
 
@@ -57,7 +58,7 @@ produtoSchema.index({ tenantId: 1, sku: 1 }, { unique: true });
 
 // Middleware pre('save') - Atualiza updatedAt, calcula estoque total e sincroniza contasBling
 produtoSchema.pre('save', function (next) {
-  this.updatedAt = new Date();
+  this.updatedAt = getBrazilNow();
   
   // Calcular estoque total e sincronizar contasBling a partir de estoquePorConta
   if (this.estoquePorConta && this.estoquePorConta instanceof Map) {
@@ -93,7 +94,7 @@ produtoSchema.pre('findOneAndUpdate', function (next) {
   const update = this.getUpdate();
   const updatePayload = update.$set || update;
   
-  updatePayload.updatedAt = new Date();
+  updatePayload.updatedAt = getBrazilNow();
   
   // Se estoquePorConta foi atualizado, recalcular estoque e sincronizar contasBling
   if (updatePayload.estoquePorConta) {
@@ -153,7 +154,7 @@ produtoSchema.methods.atualizarEstoqueUnificado = function (estoquePorConta) {
   
   this.estoque = total;
   this.contasBling = [...new Set(contas)]; // Remove duplicatas
-  this.ultimaSincronizacao = new Date();
+  this.ultimaSincronizacao = getBrazilNow();
   
   return this;
 };
@@ -191,4 +192,3 @@ produtoSchema.methods.getEstoqueTotal = function () {
 const Produto = mongoose.model('Produto', produtoSchema, 'estoqueuni_produtos');
 
 export default Produto;
-

@@ -1,6 +1,7 @@
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
 import EventoProcessado from '../models/EventoProcessado.js';
 import sincronizadorEstoqueService from './sincronizadorEstoqueService.js';
+import { getBrazilNow } from '../utils/timezone.js';
 
 /**
  * Serviço de Processamento de Eventos da Fila
@@ -64,6 +65,25 @@ class EventProcessorService {
         return {
           ignorado: true,
           motivo: 'Configuração de sincronização não encontrada',
+          tenantId: tenantIdFinal,
+        };
+      }
+
+      // Se não há contas Bling ativas, ignora
+      const contasAtivas = (config.contasBling || []).filter(
+        (c) =>
+          c &&
+          c.blingAccountId &&
+          c.isActive !== false &&
+          c.is_active !== false
+      );
+      if (contasAtivas.length === 0) {
+        console.log(
+          `[EVENT-PROCESSOR] ⚠️ Nenhuma conta Bling ativa para tenant ${tenantIdFinal}. Evento ignorado.`
+        );
+        return {
+          ignorado: true,
+          motivo: 'Nenhuma conta Bling ativa',
           tenantId: tenantIdFinal,
         };
       }
@@ -161,7 +181,7 @@ class EventProcessorService {
           origem,
           sucesso,
           erro: erro || null,
-          processadoEm: new Date(),
+          processadoEm: getBrazilNow(),
         });
 
         console.log(
@@ -203,7 +223,7 @@ class EventProcessorService {
         chaveUnica,
         resultadoSincronizacao,
         erro: erro || null,
-        processadoEm: new Date(),
+        processadoEm: getBrazilNow(),
       };
     } catch (error) {
       console.error(
@@ -224,7 +244,7 @@ class EventProcessorService {
           origem: 'webhook',
           sucesso: false,
           erro: error.message || String(error),
-          processadoEm: new Date(),
+          processadoEm: getBrazilNow(),
         });
       } catch (errorRegistro) {
         console.error(
@@ -284,4 +304,3 @@ class EventProcessorService {
 }
 
 export default new EventProcessorService();
-

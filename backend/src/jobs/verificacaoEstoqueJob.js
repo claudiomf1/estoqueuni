@@ -32,19 +32,16 @@ async function processarVerificacao() {
   isRunning = true;
 
   try {
-    console.log(
-      '\n🔄 [VERIFICACAO-ESTOQUE-JOB] Iniciando verificação de estoque...'
-    );
-
     // Buscar todos os tenants com cronjob ativo
     const tenantsAtivos = await verificacaoEstoqueService.buscarTenantsAtivos();
 
     if (!tenantsAtivos || tenantsAtivos.length === 0) {
-      console.log(
-        'ℹ️  [VERIFICACAO-ESTOQUE-JOB] Nenhum tenant com cronjob ativo encontrado.'
-      );
       return;
     }
+
+    console.log(
+      '\n🔄 [VERIFICACAO-ESTOQUE-JOB] Iniciando verificação de estoque...'
+    );
 
     console.log(
       `📋 [VERIFICACAO-ESTOQUE-JOB] Verificando ${tenantsAtivos.length} tenant(s) ativo(s)...`
@@ -181,5 +178,4 @@ export default {
   pararCronjob,
   executarUmaVez,
 };
-
 

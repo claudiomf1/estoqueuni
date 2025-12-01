@@ -1,8 +1,15 @@
-import React from 'react';
-import { Card, Badge, Spinner, Row, Col, Button, OverlayTrigger, Tooltip } from 'react-bootstrap';
-import { CheckCircle, XCircle, Clock, Activity, PauseFill, PlayFill, ArrowClockwise } from 'react-bootstrap-icons';
+import React, { useState } from 'react';
+import { Card, Badge, Spinner, Row, Col, Button, OverlayTrigger, Tooltip, Alert, Modal } from 'react-bootstrap';
+import { CheckCircle, XCircle, Clock, Activity, PauseFill, PlayFill, ArrowClockwise, Trash } from 'react-bootstrap-icons';
+import { sincronizacaoApi } from '../../services/sincronizacaoApi';
+import { useTenant } from '../../context/TenantContext';
 
 export default function StatusSincronizacao({ status, isLoading, pollingAtivo, onTogglePolling, onRefreshManual, statusChecklist }) {
+  const { tenantId } = useTenant();
+  const [mostrarModalConfirmacao, setMostrarModalConfirmacao] = useState(false);
+  const [limpando, setLimpando] = useState(false);
+  const [mensagemLimpeza, setMensagemLimpeza] = useState(null);
+  const [erroLimpeza, setErroLimpeza] = useState(null);
   if (isLoading && !status) {
     return (
       <Card className="mb-4">
@@ -95,6 +102,45 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
     </Tooltip>
   );
 
+  const handleLimparEstatisticas = async () => {
+    setLimpando(true);
+    setMensagemLimpeza(null);
+    setErroLimpeza(null);
+
+    try {
+      const response = await sincronizacaoApi.limparEstatisticas(tenantId);
+      
+      if (response.data?.success) {
+        setMensagemLimpeza(response.data.message || 'Estatísticas limpas com sucesso!');
+        setMostrarModalConfirmacao(false);
+        
+        // Atualizar o status após limpar
+        if (onRefreshManual) {
+          setTimeout(() => {
+            onRefreshManual();
+          }, 500);
+        }
+
+        // Limpar mensagem após 5 segundos
+        setTimeout(() => {
+          setMensagemLimpeza(null);
+        }, 5000);
+      } else {
+        throw new Error(response.data?.message || 'Erro ao limpar estatísticas');
+      }
+    } catch (error) {
+      console.error('[StatusSincronizacao] Erro ao limpar estatísticas:', error);
+      setErroLimpeza(error.mensagem || error.message || 'Erro ao limpar estatísticas');
+      
+      // Limpar erro após 5 segundos
+      setTimeout(() => {
+        setErroLimpeza(null);
+      }, 5000);
+    } finally {
+      setLimpando(false);
+    }
+  };
+
   return (
     <Card className="mb-4">
       <Card.Header className="d-flex justify-content-between align-items-center">
@@ -157,9 +203,48 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
               )}
             </Button>
           )}
+          <OverlayTrigger
+            placement="top"
+            overlay={
+              <Tooltip id="limpar-estatisticas-tooltip">
+                Limpar todas as estatísticas de sincronização (Total Sincronizado, Sucessos, Erros)
+              </Tooltip>
+            }
+          >
+            <Button
+              variant="outline-danger"
+              size="sm"
+              onClick={() => setMostrarModalConfirmacao(true)}
+              disabled={isLoading || limpando}
+              title="Limpar estatísticas"
+            >
+              {limpando ? (
+                <>
+                  <Spinner as="span" animation="border" size="sm" className="me-1" />
+                  Limpando...
+                </>
+              ) : (
+                <>
+                  <Trash className="me-1" />
+                  Limpar Estatísticas
+                </>
+              )}
+            </Button>
+          </OverlayTrigger>
         </div>
       </Card.Header>
       <Card.Body>
+        {/* Mensagens de feedback */}
+        {mensagemLimpeza && (
+          <Alert variant="success" className="py-2 mb-3" dismissible onClose={() => setMensagemLimpeza(null)}>
+            {mensagemLimpeza}
+          </Alert>
+        )}
+        {erroLimpeza && (
+          <Alert variant="danger" className="py-2 mb-3" dismissible onClose={() => setErroLimpeza(null)}>
+            {erroLimpeza}
+          </Alert>
+        )}
 
         <Row>
           <Col md={3} className="mb-2">
@@ -207,6 +292,41 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
           </Col>
         </Row>
       </Card.Body>
+
+      {/* Modal de confirmação */}
+      <Modal show={mostrarModalConfirmacao} onHide={() => setMostrarModalConfirmacao(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Confirmar Limpeza de Estatísticas</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p>
+            Tem certeza que deseja limpar todas as estatísticas de sincronização?
+          </p>
+          <p className="text-muted small mb-0">
+            Esta ação irá remover permanentemente todos os registros de eventos processados, 
+            incluindo o histórico de sincronizações (Total Sincronizado, Sucessos, Erros).
+            Esta ação não pode ser desfeita.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setMostrarModalConfirmacao(false)}>
+            Cancelar
+          </Button>
+          <Button variant="danger" onClick={handleLimparEstatisticas} disabled={limpando}>
+            {limpando ? (
+              <>
+                <Spinner as="span" animation="border" size="sm" className="me-2" />
+                Limpando...
+              </>
+            ) : (
+              <>
+                <Trash className="me-2" />
+                Sim, Limpar Estatísticas
+              </>
+            )}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </Card>
   );
 }

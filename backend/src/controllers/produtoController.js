@@ -2,6 +2,7 @@
 import Produto from '../models/Produto.js';
 import BlingConfig from '../models/BlingConfig.js';
 import blingService from '../services/blingService.js';
+import { getBrazilNow } from '../utils/timezone.js';
 
 class ProdutoController {
   async listarProdutos(req, res) {
@@ -430,11 +431,11 @@ class ProdutoController {
                   },
                   estoque: estoque, // Estoque total (será recalculado pelo middleware se necessário)
                   contasBling: [blingAccountId],
-                  ultimaSincronizacao: new Date(),
-                  updatedAt: new Date()
+                  ultimaSincronizacao: getBrazilNow(),
+                  updatedAt: getBrazilNow()
                 },
                 $setOnInsert: {
-                  createdAt: new Date()
+                  createdAt: getBrazilNow()
                 }
               },
               upsert: true
@@ -477,8 +478,6 @@ class ProdutoController {
 }
 
 export default ProdutoController;
-
-
 
 
 

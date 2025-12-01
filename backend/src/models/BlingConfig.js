@@ -1,5 +1,6 @@
 // backend/src/models/BlingConfig.js
 import mongoose from 'mongoose';
+import { getBrazilNow } from '../utils/timezone.js';
 
 /**
  * Model de configuração do Bling
@@ -97,11 +98,11 @@ const blingConfigSchema = new mongoose.Schema({
   // Timestamps
   createdAt: {
     type: Date,
-    default: Date.now,
+    default: getBrazilNow,
   },
   updatedAt: {
     type: Date,
-    default: Date.now,
+    default: getBrazilNow,
   },
 });
 
@@ -113,7 +114,12 @@ blingConfigSchema.index({ tenantId: 1, blingAccountId: 1 }, { unique: true });
 
 // Middleware pre('save') - Atualiza updatedAt e gera blingAccountId se não fornecido
 blingConfigSchema.pre('save', function (next) {
-  this.updatedAt = new Date();
+  const nowBrazil = getBrazilNow();
+  this.updatedAt = nowBrazil;
+
+  if (!this.createdAt) {
+    this.createdAt = nowBrazil;
+  }
 
   // Gerar blingAccountId automaticamente se não fornecido
   if (!this.blingAccountId) {
@@ -172,4 +178,3 @@ blingConfigSchema.methods.needsReauthorization = function () {
 const BlingConfig = mongoose.model('BlingConfig', blingConfigSchema, 'estoqueuni_blingConfigs');
 
 export default BlingConfig;
-

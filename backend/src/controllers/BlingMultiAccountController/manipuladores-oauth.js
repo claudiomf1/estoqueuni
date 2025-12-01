@@ -1,5 +1,6 @@
 import BlingConfig from '../../models/BlingConfig.js';
 import blingService from '../../services/blingService.js';
+import { getBrazilNow } from '../../utils/timezone.js';
 
 /**
  * Manipuladores para autorização OAuth com Bling
@@ -87,7 +88,7 @@ export const manipuladoresOAuth = {
           store_name: storeInfo?.nome || null,
           accountName: novoAccountName,
           is_active: true,
-          last_sync: new Date(),
+          last_sync: getBrazilNow(),
           last_error: null
         },
         { new: true }
@@ -166,4 +167,3 @@ export const manipuladoresOAuth = {
     }
   }
 };
-

@@ -147,6 +147,16 @@ export const sincronizacaoApi = {
       blingAccountId
     }),
 
+  /**
+   * Limpa todas as estatísticas de sincronização (eventos processados)
+   * @param {string} tenantId - ID do tenant
+   * @returns {Promise} Resposta com quantidade de registros removidos
+   */
+  limparEstatisticas: (tenantId) =>
+    api.delete('/estatisticas', {
+      params: { tenantId }
+    }),
+
 };
 
 export default sincronizacaoApi;

@@ -1,5 +1,6 @@
 // backend/src/models/ConfiguracaoSincronizacao.js
 import mongoose from 'mongoose';
+import { getBrazilNow } from '../utils/timezone.js';
 
 /**
  * Model de configuração de sincronização de estoques (Multitenant Genérico)
@@ -179,7 +180,7 @@ const configuracaoSincronizacaoSchema = new mongoose.Schema({
 
 // Middleware pre('save') - Atualiza updatedAt e calcula próxima execução
 configuracaoSincronizacaoSchema.pre('save', function (next) {
-  this.updatedAt = new Date();
+  this.updatedAt = getBrazilNow();
 
   // Calcular próxima execução do cronjob se estiver ativo
   if (this.cronjob && this.cronjob.ativo && this.cronjob.intervaloMinutos) {
@@ -200,7 +201,7 @@ configuracaoSincronizacaoSchema.methods.calcularProximaExecucao = function () {
     return null;
   }
 
-  const agora = new Date();
+  const agora = getBrazilNow();
   const ultimaExecucao = this.cronjob.ultimaExecucao || agora;
   const intervaloMs = this.cronjob.intervaloMinutos * 60 * 1000;
 
@@ -347,7 +348,7 @@ configuracaoSincronizacaoSchema.methods.atualizarUltimaExecucao = function () {
       proximaExecucao: null,
     };
   }
-  this.cronjob.ultimaExecucao = new Date();
+  this.cronjob.ultimaExecucao = getBrazilNow();
   this.cronjob.proximaExecucao = this.calcularProximaExecucao();
 };
 
@@ -363,7 +364,7 @@ configuracaoSincronizacaoSchema.methods.atualizarUltimaRequisicaoWebhook = funct
       ultimaRequisicao: null,
     };
   }
-  this.webhook.ultimaRequisicao = new Date();
+  this.webhook.ultimaRequisicao = getBrazilNow();
 };
 
 /**

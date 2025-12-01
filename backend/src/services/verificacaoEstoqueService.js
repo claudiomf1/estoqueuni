@@ -2,6 +2,7 @@ import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
 import EventoProcessado from '../models/EventoProcessado.js';
 import Produto from '../models/Produto.js';
 import sincronizadorEstoqueService from './sincronizadorEstoqueService.js';
+import { getBrazilNow } from '../utils/timezone.js';
 
 /**
  * Serviço responsável pelo cronjob de verificação de estoques.
@@ -118,7 +119,7 @@ class VerificacaoEstoqueService {
         if (sincronizacao?.success) {
           resultado.produtosSincronizados++;
           config.incrementarEstatistica('cronjob');
-          config.ultimaSincronizacao = new Date();
+          config.ultimaSincronizacao = getBrazilNow();
         } else {
           resultado.erros++;
         }

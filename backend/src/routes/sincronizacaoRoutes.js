@@ -33,6 +33,9 @@ router.put('/webhook', controller.atualizarWebhook.bind(controller));
 router.put('/webhook/marcar-conta-configurada', controller.marcarContaWebhookConfigurada.bind(controller));
 router.put('/cronjob', controller.atualizarCronjob.bind(controller));
 
+// ===== LIMPEZA DE DADOS =====
+router.delete('/estatisticas', controller.limparEstatisticas.bind(controller));
+
 export default router;
 
 

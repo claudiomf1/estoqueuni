@@ -308,6 +308,14 @@ class BlingService {
       );
     }
 
+    // Se a conta está marcada como inativa mas já possui tokens, reativa automaticamente
+    if (config.is_active === false || config.isActive === false) {
+      await BlingConfig.findOneAndUpdate(
+        { tenantId, blingAccountId },
+        { is_active: true, isActive: true, last_error: null }
+      ).catch(() => {});
+    }
+
     // Se não expirou, retorna o token atual
     if (!config.isTokenExpired()) {
       return config.access_token;
@@ -381,6 +389,23 @@ class BlingService {
         const produtos = response.data?.data || [];
         return produtos.length > 0 ? produtos[0] : null;
       } catch (error) {
+        const tipoErro = error.response?.data?.error?.type || error.response?.data?.error;
+        if (tipoErro === 'invalid_token') {
+          await BlingConfig.findOneAndUpdate(
+            { tenantId, blingAccountId },
+            {
+              is_active: false,
+              isActive: false,
+              access_token: null,
+              refresh_token: null,
+              expiry_date: null,
+              last_error: 'invalid_token'
+            }
+          ).catch(() => {});
+          const err = new Error('INVALID_TOKEN');
+          err.code = 'INVALID_TOKEN';
+          throw err;
+        }
         if (error.response?.status === 404) {
           return null;
         }
@@ -435,6 +460,23 @@ class BlingService {
 
         return response.data?.data || null;
       } catch (error) {
+        const tipoErro = error.response?.data?.error?.type || error.response?.data?.error;
+        if (tipoErro === 'invalid_token') {
+          await BlingConfig.findOneAndUpdate(
+            { tenantId, blingAccountId },
+            {
+              is_active: false,
+              isActive: false,
+              access_token: null,
+              refresh_token: null,
+              expiry_date: null,
+              last_error: 'invalid_token'
+            }
+          ).catch(() => {});
+          const err = new Error('INVALID_TOKEN');
+          err.code = 'INVALID_TOKEN';
+          throw err;
+        }
         if (error.response?.status === 404) {
           return null;
         }
