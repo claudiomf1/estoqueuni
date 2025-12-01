@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Container, Accordion } from 'react-bootstrap';
 import { useTenant } from '../context/TenantContext';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import { sincronizacaoApi } from '../services/sincronizacaoApi';
 import StatusSincronizacao from '../components/SincronizacaoEstoque/StatusSincronizacao';
 import ConfiguracaoDepositos from '../components/SincronizacaoEstoque/ConfiguracaoDepositos/ConfiguracaoDepositos';
@@ -15,6 +15,7 @@ import StatusDetalhesSincronizacao from '../components/SincronizacaoEstoque/Stat
 
 export default function SincronizacaoEstoque() {
   const { tenantId } = useTenant();
+  const queryClient = useQueryClient();
   const [configDepositos, setConfigDepositos] = useState(null);
   const [pollingAtivo, setPollingAtivo] = useState(true);
   const [accordionAtivo, setAccordionAtivo] = useState(null);
@@ -69,6 +70,83 @@ export default function SincronizacaoEstoque() {
     cronjob: cronjobInfo
   };
 
+  const statusChecklist = useMemo(() => {
+    const configuracaoCarregada =
+      configDepositosAtual &&
+      (configDepositosAtual.tenantId ||
+        (Array.isArray(configDepositosAtual.depositos) && configDepositosAtual.depositos.length > 0) ||
+        Array.isArray(configDepositosAtual.contasBling));
+
+    if (!configuracaoCarregada || !statusComWebhookProcessado) {
+      return null;
+    }
+
+    const pendencias = [];
+
+    if (configDepositosAtual.ativo !== true) {
+      pendencias.push('Ative a sincronização geral na seção "Configuração de Depósitos".');
+    }
+
+    const contasAtivas = (configDepositosAtual.contasBling || []).filter(
+      (conta) => conta && conta.isActive !== false
+    );
+    if (contasAtivas.length === 0) {
+      pendencias.push('Cadastre pelo menos uma conta Bling ativa em "Gerenciar Depósitos do Bling".');
+    } else {
+      const contasSemDados = contasAtivas.filter(
+        (conta) => !conta.blingAccountId || !conta.accountName
+      );
+      if (contasSemDados.length > 0) {
+        const nomesContas = contasSemDados
+          .map((conta) => conta.accountName || conta.blingAccountId || 'Conta sem nome')
+          .join(', ');
+        pendencias.push(`Complete ID e nome das contas em "Gerenciar Depósitos do Bling" (${nomesContas}).`);
+      }
+    }
+
+    const depositosConfigurados = configDepositosAtual.depositos || [];
+    if (depositosConfigurados.length === 0) {
+      pendencias.push('Adicione depósitos e salve em "Depósitos Cadastrados na Configuração".');
+    } else {
+      const depositosSemTipo = depositosConfigurados.filter((deposito) => !deposito.tipo);
+      if (depositosSemTipo.length > 0) {
+        const nomes = depositosSemTipo
+          .map((deposito) => deposito.nome || deposito.id || 'Depósito sem nome')
+          .join(', ');
+        pendencias.push(`Defina o tipo (principal/compartilhado) dos depósitos em "Depósitos Cadastrados" (${nomes}).`);
+      }
+    }
+
+    const regra = configDepositosAtual.regraSincronizacao || {};
+    const principais = Array.isArray(regra.depositosPrincipais)
+      ? regra.depositosPrincipais
+      : [];
+    const compartilhados = Array.isArray(regra.depositosCompartilhados)
+      ? regra.depositosCompartilhados
+      : [];
+
+    if (principais.length === 0) {
+      pendencias.push('Selecione ao menos um depósito principal na coluna "Depósitos Principais".');
+    }
+
+    if (compartilhados.length === 0) {
+      pendencias.push('Selecione ao menos um depósito compartilhado na coluna "Depósitos Compartilhados".');
+    }
+
+    if (
+      pendencias.length === 0 &&
+      statusComWebhookProcessado &&
+      statusComWebhookProcessado.configuracaoCompleta === false
+    ) {
+      pendencias.push('Revise e salve novamente em "Configuração de Depósitos": o servidor ainda não reconheceu a configuração completa.');
+    }
+
+    return {
+      titulo: pendencias.length ? 'Pendências para ativar a sincronização' : 'Sincronização pronta',
+      itens: pendencias
+    };
+  }, [configDepositosAtual, statusComWebhookProcessado]);
+
   // Calcular se deve abrir a seção de webhook e atualizar estado
   useEffect(() => {
     if (isLoadingConfig) return; // Aguardar carregamento
@@ -98,18 +176,11 @@ export default function SincronizacaoEstoque() {
     const contasBling = webhookInfo.contasBling || [];
     const temContasInativas = contasBling.some(conta => !conta.webhookConfigurado);
     
-    // Se todas as contas estão ativas, garantir que a seção esteja fechada
-    if (!temContasInativas) {
-      if (accordionAtivo === 'status-webhook') {
-        setAccordionAtivo(null);
-      }
-      setUsuarioFechouStatusWebhook(false); // Resetar flag quando todas estão ativas
-    }
-    // Se há contas inativas e o usuário não fechou manualmente, abrir
-    else if (temContasInativas && !usuarioFechouStatusWebhook && !accordionAtivo) {
-      // Só abre se não houver outra seção aberta
+    // Se há contas inativas e o usuário não fechou manualmente, abrir automaticamente
+    if (temContasInativas && !usuarioFechouStatusWebhook && !accordionAtivo) {
       setAccordionAtivo('status-webhook');
     }
+    // Não força fechamento quando todas estão configuradas para permitir consulta manual
   }, [statusComWebhookProcessado, isLoadingStatus, usuarioFechouStatusWebhook, accordionAtivo]);
 
   const handleSincronizacaoCompleta = () => {
@@ -119,6 +190,16 @@ export default function SincronizacaoEstoque() {
   const handleConfigDepositosUpdate = (novaConfig) => {
     setConfigDepositos(novaConfig);
     refetchStatus();
+  };
+
+  const handleCronjobAtualizado = (novaConfig) => {
+    if (novaConfig) {
+      setConfigDepositos(novaConfig);
+    }
+    refetchStatus();
+    if (tenantId) {
+      queryClient.invalidateQueries(['config-sincronizacao', tenantId]);
+    }
   };
 
   return (
@@ -137,6 +218,7 @@ export default function SincronizacaoEstoque() {
         pollingAtivo={pollingAtivo}
         onTogglePolling={() => setPollingAtivo(!pollingAtivo)}
         onRefreshManual={refetchStatus}
+        statusChecklist={statusChecklist}
       />
 
       {/* Configuração de Depósitos */}
@@ -214,7 +296,7 @@ export default function SincronizacaoEstoque() {
               tenantId={tenantId}
               cronjob={cronjobConfigurado}
               isLoading={isLoadingStatus}
-              onConfigAtualizada={refetchStatus}
+              onConfigAtualizada={handleCronjobAtualizado}
             />
           </Accordion.Body>
         </Accordion.Item>
@@ -255,4 +337,3 @@ export default function SincronizacaoEstoque() {
     </Container>
   );
 }
-

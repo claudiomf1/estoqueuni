@@ -58,7 +58,6 @@ const usuarioSchema = new mongoose.Schema(
 // Índices
 usuarioSchema.index({ nome_usuario: 1, rota_base: 1 });
 usuarioSchema.index({ email: 1, rota_base: 1 });
-usuarioSchema.index({ tenantId: 1 });
 
 const Usuario =
   mongoose.models.estoqueuni_usuarios ||

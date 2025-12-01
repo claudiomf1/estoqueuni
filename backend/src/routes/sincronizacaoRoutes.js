@@ -2,7 +2,7 @@ import { Router } from 'express';
 import SincronizacaoController from '../controllers/sincronizacaoController.js';
 import { validarTenantId } from '../middlewares/validarTenantId.js';
 
-const router = Router();
+const router = Router(); 
 
 /**
  * Rotas de sincronização de estoques

@@ -44,12 +44,14 @@ export default function ConfiguracaoWebhook({ tenantId, configuracao, isLoading 
   
   // Criar um Set com os IDs das contas configuradas para busca mais eficiente
   const idsContasConfiguradas = new Set(
-    contasConfiguradas.map(c => c.blingAccountId).filter(Boolean)
+    contasConfiguradas
+      .map(c => c.blingAccountId || c._id || c.id)
+      .filter(Boolean)
   );
   
   const contasNaoConfiguradas = contasBlingAtivas.filter(conta => {
     // Usar sempre blingAccountId como identificador principal
-    const contaId = conta.blingAccountId;
+    const contaId = conta.blingAccountId || conta._id || conta.id;
     if (!contaId) {
       return true; // Se não tem ID, considerar como não configurada
     }
@@ -259,5 +261,4 @@ export default function ConfiguracaoWebhook({ tenantId, configuracao, isLoading 
     </Card>
   );
 }
-
 

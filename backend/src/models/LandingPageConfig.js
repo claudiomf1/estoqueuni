@@ -10,7 +10,6 @@ const landingPageConfigSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
       trim: true,
     },
     logoUrl: {
@@ -36,12 +35,8 @@ const landingPageConfigSchema = new mongoose.Schema(
   }
 );
 
-// Índice único para tenantId
-landingPageConfigSchema.index({ tenantId: 1 }, { unique: true });
-
 const LandingPageConfig =
   mongoose.models.estoqueuni_landingPageConfigs ||
   mongoose.model('estoqueuni_landingPageConfigs', landingPageConfigSchema, 'estoqueuni_landingPageConfigs');
 
 export default LandingPageConfig;
-

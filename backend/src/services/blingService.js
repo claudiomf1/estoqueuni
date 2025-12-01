@@ -823,6 +823,131 @@ class BlingService {
   }
 
   /**
+   * Registra movimentação de estoque no Bling (Operação Balanço, Entrada, Saída, etc)
+   * @param {Object} params
+   * @param {string} params.tenantId
+   * @param {string} params.blingAccountId
+   * @param {string|number} params.depositoId
+   * @param {number} params.quantidade
+   * @param {string} [params.tipoOperacao='B'] - Tipos suportados pelo Bling: 'B', 'E', 'S'
+   * @param {string} [params.produtoIdBling] - ID do produto no Bling (evita nova consulta)
+   * @param {string} [params.sku] - SKU do produto (necessário se produtoIdBling não for informado)
+   * @param {string} [params.observacao]
+   * @param {string} [params.origem='EstoqueUni']
+   * @returns {Promise<Object>} Resposta da API
+   */
+  async registrarMovimentacaoEstoque({
+    tenantId,
+    blingAccountId,
+    depositoId,
+    quantidade,
+    tipoOperacao = 'B',
+    produtoIdBling,
+    sku,
+    observacao,
+    origem = 'EstoqueUni',
+  }) {
+    if (!tenantId) {
+      throw new Error('tenantId é obrigatório');
+    }
+
+    if (!blingAccountId) {
+      throw new Error('blingAccountId é obrigatório');
+    }
+
+    if (!depositoId) {
+      throw new Error('depositoId é obrigatório');
+    }
+
+    const quantidadeNormalizada = Number(quantidade);
+    if (!Number.isFinite(quantidadeNormalizada) || quantidadeNormalizada < 0) {
+      throw new Error('Quantidade inválida para movimentação de estoque');
+    }
+
+    let produtoId = produtoIdBling;
+    if (!produtoId) {
+      if (!sku) {
+        throw new Error('sku é obrigatório quando produtoIdBling não é fornecido');
+      }
+      const produto = await this.getProdutoPorSku(sku, tenantId, blingAccountId, true);
+      if (!produto || !produto.id) {
+        throw new Error('Produto não encontrado no Bling para esta conta');
+      }
+      produtoId = produto.id;
+    }
+
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+    const payload = {
+      produto: { id: produtoId },
+      deposito: { id: depositoId },
+      tipoOperacao,
+      quantidade: quantidadeNormalizada,
+    };
+
+    const descricaoObservacao =
+      observacao || `Atualização automática realizada via EstoqueUni (${origem})`;
+
+    payload.observacao = descricaoObservacao;
+
+    try {
+      const response = await axios.post(
+        `${this.apiUrl}/estoques`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data?.data || response.data || { success: true };
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao movimentar estoque - Requer re-autorização',
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        err.status = status;
+        throw err;
+      }
+
+      console.error(
+        `[BLING-SERVICE] ❌ Erro ao registrar movimentação de estoque (produto ${produtoId}, depósito ${depositoId}):`,
+        JSON.stringify(
+          {
+            status,
+            statusText: error.response?.statusText,
+            data,
+            reason,
+            url: `${this.apiUrl}/estoques`,
+          },
+          null,
+          2
+        )
+      );
+
+      throw new Error(`Falha ao atualizar estoque no Bling: ${reason}`);
+    }
+  }
+
+  /**
    * Deleta um depósito no Bling
    * NOTA: A API do Bling não permite deletar depósitos. 
    * Este método tenta inativar o depósito e depois remove da configuração local.

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, Alert, Spinner, Badge } from 'react-bootstrap';
+import { Card, Form, Alert, Spinner, Badge } from 'react-bootstrap';
 import { Clock, CheckCircle, XCircle } from 'react-bootstrap-icons';
 import { sincronizacaoApi } from '../../services/sincronizacaoApi';
 
@@ -19,12 +19,24 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
     }
   }, [cronjob]);
 
-  const handleSalvar = async () => {
+  const salvarConfiguracao = async (novoAtivo = ativo, novoIntervalo = intervaloMinutos) => {
     setErro(null);
     setMensagem(null);
 
-    if (intervaloMinutos < 1) {
+    const intervaloValidado = Math.max(1, Math.min(Number(novoIntervalo) || 1, 1440));
+
+    if (intervaloValidado < 1) {
       setErro('O intervalo deve ser de pelo menos 1 minuto.');
+      return;
+    }
+
+    const configuracaoInalterada =
+      (configLocal?.ativo ?? false) === novoAtivo &&
+      (configLocal?.intervaloMinutos ?? 60) === intervaloValidado;
+
+    if (configuracaoInalterada) {
+      setAtivo(novoAtivo);
+      setIntervaloMinutos(intervaloValidado);
       return;
     }
 
@@ -32,14 +44,20 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
 
     try {
       const response = await sincronizacaoApi.atualizarConfiguracaoCronjob(tenantId, {
-        ativo,
-        intervaloMinutos
+        ativo: novoAtivo,
+        intervaloMinutos: intervaloValidado
       });
+      const configAtualizada = response.data?.data;
 
       if (response.data?.success !== false) {
         setMensagem('Configuração da sincronização automática salva com sucesso!');
+        if (configAtualizada?.cronjob) {
+          setConfigLocal(configAtualizada.cronjob);
+          setAtivo(configAtualizada.cronjob.ativo ?? novoAtivo);
+          setIntervaloMinutos(configAtualizada.cronjob.intervaloMinutos ?? intervaloValidado);
+        }
         if (typeof onConfigAtualizada === 'function') {
-          onConfigAtualizada();
+          onConfigAtualizada(configAtualizada);
         }
         setTimeout(() => setMensagem(null), 5000);
       } else {
@@ -105,7 +123,11 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
               id="cronjob-ativo"
               label="Ativar Sincronização Automática"
               checked={ativo}
-              onChange={(e) => setAtivo(e.target.checked)}
+              onChange={(e) => {
+                const novoAtivo = e.target.checked;
+                setAtivo(novoAtivo);
+                salvarConfiguracao(novoAtivo, intervaloMinutos);
+              }}
               disabled={salvando}
             />
             <Form.Text className="text-muted">
@@ -121,6 +143,11 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
               max="1440"
               value={intervaloMinutos}
               onChange={(e) => setIntervaloMinutos(parseInt(e.target.value) || 60)}
+              onBlur={(e) => {
+                const valor = parseInt(e.target.value) || 60;
+                setIntervaloMinutos(valor);
+                salvarConfiguracao(ativo, valor);
+              }}
               disabled={salvando || !ativo}
             />
             <Form.Text className="text-muted">
@@ -190,29 +217,7 @@ export default function ConfiguracaoCronjob({ tenantId, cronjob = {}, isLoading 
             {mensagem}
           </Alert>
         )}
-
-        <div className="mt-3">
-          <Button
-            variant="primary"
-            onClick={handleSalvar}
-            disabled={salvando}
-          >
-            {salvando ? (
-              <>
-                <Spinner as="span" animation="border" size="sm" className="me-2" />
-                Salvando...
-              </>
-            ) : (
-              <>
-                <Clock className="me-2" />
-                Salvar Configuração
-              </>
-            )}
-          </Button>
-        </div>
       </Card.Body>
     </Card>
   );
 }
-
-

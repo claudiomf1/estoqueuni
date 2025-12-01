@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, Badge, Spinner, Row, Col, Button, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { CheckCircle, XCircle, Clock, Activity, PauseFill, PlayFill, ArrowClockwise } from 'react-bootstrap-icons';
 
-export default function StatusSincronizacao({ status, isLoading, pollingAtivo, onTogglePolling, onRefreshManual }) {
+export default function StatusSincronizacao({ status, isLoading, pollingAtivo, onTogglePolling, onRefreshManual, statusChecklist }) {
   if (isLoading && !status) {
     return (
       <Card className="mb-4">
@@ -74,6 +74,27 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
     }
   };
 
+  const renderTooltipConteudo = () => (
+    <Tooltip id="status-geral-tooltip">
+      {statusChecklist ? (
+        <div className="small">
+          <div className="fw-bold mb-1">{statusChecklist.titulo}</div>
+          {statusChecklist.itens && statusChecklist.itens.length > 0 ? (
+            <ul className="mb-0 ps-3">
+              {statusChecklist.itens.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <div>Todos os requisitos foram atendidos.</div>
+          )}
+        </div>
+      ) : (
+        'Status detectado automaticamente baseado na configuração completa'
+      )}
+    </Tooltip>
+  );
+
   return (
     <Card className="mb-4">
       <Card.Header className="d-flex justify-content-between align-items-center">
@@ -89,11 +110,7 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
               <span className="text-muted small">Status Geral:</span>
               <OverlayTrigger
                 placement="top"
-                overlay={
-                  <Tooltip>
-                    Status detectado automaticamente baseado na configuração completa
-                  </Tooltip>
-                }
+                overlay={renderTooltipConteudo()}
               >
                 <Badge bg={status.ativo ? 'success' : 'secondary'} style={{ cursor: 'help' }}>
                   {status.ativo ? 'Ativo' : 'Inativo'}
@@ -193,6 +210,5 @@ export default function StatusSincronizacao({ status, isLoading, pollingAtivo, o
     </Card>
   );
 }
-
 
 

@@ -1,351 +1,204 @@
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
-import Produto from '../models/Produto.js';
 import EventoProcessado from '../models/EventoProcessado.js';
+import Produto from '../models/Produto.js';
 import sincronizadorEstoqueService from './sincronizadorEstoqueService.js';
 
 /**
- * Serviço de Verificação de Estoque
- * 
- * Verifica periodicamente produtos que podem ter mudado de estoque
- * e sincroniza quando necessário (fallback para webhooks)
+ * Serviço responsável pelo cronjob de verificação de estoques.
+ * Executa sincronizações periódicas quando produtos estão desatualizados,
+ * funcionando como fallback para o fluxo principal via webhooks.
  */
 class VerificacaoEstoqueService {
+  constructor() { 
+    this.intervaloPadraoMinutos = 30;
+    this.maxProdutosPorExecucao = 100;
+    this.cooldownMinutos = 5; // evita reprocessar o mesmo produto em sequência
+  }
+
   /**
-   * Executa verificação de estoque para um tenant
-   * @param {string} tenantId - ID do tenant
-   * @returns {Promise<Object>} Resultado da verificação
+   * Retorna tenants com cronjob ativo e prontos para serem processados.
+   * @returns {Promise<string[]>}
+   */
+  async buscarTenantsAtivos() {
+    const configs = await ConfiguracaoSincronizacao.find({
+      ativo: true,
+      'cronjob.ativo': true,
+    }).select('tenantId cronjob');
+
+    const elegiveis = configs
+      .filter((config) => this._deveExecutarAgora(config))
+      .map((config) => config.tenantId);
+
+    return elegiveis;
+  }
+
+  /**
+   * Executa verificação para um tenant específico.
+   * @param {string} tenantId
    */
   async executarVerificacao(tenantId) {
+    const resultado = {
+      success: false,
+      tenantId,
+      produtosSincronizados: 0,
+      produtosIgnorados: 0,
+      erros: 0,
+    };
+
+    const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
+
+    if (!config) {
+      resultado.message = 'Configuração não encontrada';
+      return resultado;
+    }
+
+    if (!config.ativo || !config.isConfigurationComplete()) {
+      resultado.message = 'Sincronização inativa ou configuração incompleta';
+      return resultado;
+    }
+
+    if (!config.cronjob || config.cronjob.ativo !== true) {
+      resultado.message = 'Cronjob desativado';
+      return resultado;
+    }
+
+    const intervalo = config.cronjob.intervaloMinutos || this.intervaloPadraoMinutos;
+    const produtos = await this.buscarProdutosDesatualizados(tenantId, intervalo);
+
+    if (!produtos || produtos.length === 0) {
+      config.atualizarUltimaExecucao();
+      await config.save();
+      resultado.success = true;
+      resultado.message = 'Nenhum produto desatualizado';
+      return resultado;
+    }
+
     console.log(
-      `[VERIFICACAO-ESTOQUE] Iniciando verificação para tenant ${tenantId}`
+      `[VERIFICACAO-ESTOQUE] Tenant ${tenantId} - ${produtos.length} produto(s) para validar`
     );
 
-    try {
-      // 1. Buscar configuração
-      const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
+    const cooldownLimite = new Date(Date.now() - this.cooldownMinutos * 60 * 1000);
+    const skus = produtos.map((produto) => produto?.sku).filter(Boolean);
 
-      if (!config) {
-        console.log(
-          `[VERIFICACAO-ESTOQUE] ⚠️ Configuração não encontrada para tenant ${tenantId}`
+    const eventosRecentes = skus.length
+      ? await EventoProcessado.find({
+          tenantId,
+          produtoId: { $in: skus },
+          origem: 'cronjob',
+          processadoEm: { $gte: cooldownLimite },
+        })
+          .select('produtoId')
+          .lean()
+      : [];
+
+    const produtosProcessadosRecentemente = new Set(
+      eventosRecentes.map((evento) => evento.produtoId)
+    );
+
+    for (const produto of produtos) {
+      const sku = produto?.sku;
+
+      if (!sku) {
+        resultado.produtosIgnorados++;
+        continue;
+      }
+
+      if (produtosProcessadosRecentemente.has(sku)) {
+        resultado.produtosIgnorados++;
+        continue;
+      }
+
+      try {
+        const sincronizacao = await sincronizadorEstoqueService.sincronizarEstoque(
+          sku,
+          tenantId,
+          'cronjob'
         );
-        return {
-          success: false,
-          message: 'Configuração não encontrada',
-          tenantId,
-        };
-      }
 
-      // 2. Verificar se cronjob está ativo
-      if (!config.cronjob || !config.cronjob.ativo) {
-        console.log(
-          `[VERIFICACAO-ESTOQUE] ⚠️ Cronjob desativado para tenant ${tenantId}`
-        );
-        return {
-          success: false,
-          message: 'Cronjob desativado',
-          tenantId,
-        };
-      }
-
-      // 3. Buscar produtos desatualizados
-      const intervaloMinutos = config.cronjob.intervaloMinutos || 30;
-      const produtosDesatualizados = await this.buscarProdutosDesatualizados(
-        tenantId,
-        intervaloMinutos
-      );
-
-      console.log(
-        `[VERIFICACAO-ESTOQUE] Encontrados ${produtosDesatualizados.length} produto(s) desatualizado(s) para tenant ${tenantId}`
-      );
-
-      if (produtosDesatualizados.length === 0) {
-        // Atualizar última execução mesmo sem produtos
-        config.atualizarUltimaExecucao();
-        await config.save();
-
-        return {
-          success: true,
-          message: 'Nenhum produto desatualizado encontrado',
-          tenantId,
-          produtosProcessados: 0,
-        };
-      }
-
-      // 4. Processar cada produto
-      let produtosSincronizados = 0;
-      let produtosIgnorados = 0;
-      let erros = 0;
-
-      for (const produto of produtosDesatualizados) {
-        try {
-          // Verificar anti-duplicação recente (últimas 5 minutos)
-          const foiProcessadoRecentemente = await this.verificarAntiDuplicacaoRecente(
-            produto.sku,
-            tenantId,
-            5 // minutos
+        if (sincronizacao?.success) {
+          resultado.produtosSincronizados++;
+          config.incrementarEstatistica('cronjob');
+          config.ultimaSincronizacao = new Date();
+        } else {
+          resultado.erros++;
+        }
+      } catch (error) {
+        if (error?.code === 'PRODUTO_COMPOSTO') {
+          resultado.produtosIgnorados++;
+          console.warn(
+            `[VERIFICACAO-ESTOQUE] ⚠️ Produto ${sku} ignorado (produto composto): ${error.message}`
           );
-
-          if (foiProcessadoRecentemente) {
-            console.log(
-              `[VERIFICACAO-ESTOQUE] Produto ${produto.sku} foi processado recentemente, ignorando...`
-            );
-            produtosIgnorados++;
-            continue;
-          }
-
-          // Buscar saldos atuais e comparar com última sincronização
-          // Se mudou, sincronizar
-          const precisaSincronizar = await this.verificarSePrecisaSincronizar(
-            produto,
-            tenantId,
-            config
-          );
-
-          if (precisaSincronizar) {
-            try {
-              // Sincronizar estoque
-              const resultado = await sincronizadorEstoqueService.sincronizarEstoque(
-                produto.sku,
-                tenantId,
-                'cronjob'
-              );
-
-              // Verificar se a sincronização foi realmente bem-sucedida
-              if (resultado.success) {
-                produtosSincronizados++;
-                console.log(
-                  `[VERIFICACAO-ESTOQUE] ✅ Produto ${produto.sku} sincronizado com sucesso`
-                );
-              } else {
-                erros++;
-                console.error(
-                  `[VERIFICACAO-ESTOQUE] ❌ Produto ${produto.sku} sincronizado com FALHAS:`,
-                  resultado.estatisticas ? 
-                    `${resultado.estatisticas.depositosAtualizadosComSucesso}/${resultado.estatisticas.totalDepositosCompartilhados} depósito(s) atualizado(s)` :
-                    'Verifique os logs acima para detalhes'
-                );
-              }
-            } catch (error) {
-              // Verificar se é erro de produto composto (não é um erro crítico, apenas ignorar)
-              if (error.message && error.message.includes('produto composto')) {
-                produtosIgnorados++;
-                console.log(
-                  `[VERIFICACAO-ESTOQUE] ⚠️ Produto ${produto.sku} é composto e não pode ser sincronizado (ignorando)`
-                );
-                // Atualizar última sincronização para não tentar novamente
-                await Produto.findOneAndUpdate(
-                  { tenantId, sku: produto.sku },
-                  { ultimaSincronizacao: new Date() }
-                );
-              } else {
-                erros++;
-                console.error(
-                  `[VERIFICACAO-ESTOQUE] ❌ Erro ao sincronizar produto ${produto.sku}:`,
-                  error.message
-                );
-              }
-            }
-          } else {
-            // Atualizar última sincronização mesmo sem mudança
-            await Produto.findOneAndUpdate(
-              { tenantId, sku: produto.sku },
-              { ultimaSincronizacao: new Date() }
-            );
-            produtosIgnorados++;
-          }
-        } catch (error) {
-          erros++;
+        } else {
+          resultado.erros++;
           console.error(
-            `[VERIFICACAO-ESTOQUE] ❌ Erro ao processar produto ${produto.sku}:`,
+            `[VERIFICACAO-ESTOQUE] ❌ Erro ao sincronizar produto ${sku}:`,
             error.message
           );
         }
       }
-
-      // 5. Atualizar estatísticas
-      config.incrementarEstatistica('cronjob');
-      config.atualizarUltimaExecucao();
-      await config.save();
-
-      const resultado = {
-        success: true,
-        tenantId,
-        produtosProcessados: produtosDesatualizados.length,
-        produtosSincronizados,
-        produtosIgnorados,
-        erros,
-        processadoEm: new Date(),
-      };
-
-      console.log(
-        `[VERIFICACAO-ESTOQUE] ✅ Verificação concluída para tenant ${tenantId}: ` +
-          `${produtosSincronizados} sincronizado(s), ${produtosIgnorados} ignorado(s), ${erros} erro(s)`
-      );
-
-      return resultado;
-    } catch (error) {
-      console.error(
-        `[VERIFICACAO-ESTOQUE] ❌ Erro crítico na verificação para tenant ${tenantId}:`,
-        error.message
-      );
-      throw error;
     }
+
+    config.atualizarUltimaExecucao();
+    await config.save();
+
+    resultado.success = true;
+    resultado.message = `Processados ${produtos.length} produto(s)`;
+    return resultado;
   }
 
   /**
-   * Busca produtos desatualizados (última sincronização > intervalo)
-   * @param {string} tenantId - ID do tenant
-   * @param {number} intervaloMinutos - Intervalo em minutos
-   * @returns {Promise<Array>} Lista de produtos desatualizados
+   * Busca produtos desatualizados de acordo com o intervalo informado.
+   * @param {string} tenantId
+   * @param {number} intervaloMinutos
    */
-  async buscarProdutosDesatualizados(tenantId, intervaloMinutos) {
-    const agora = new Date();
-    const intervaloMs = intervaloMinutos * 60 * 1000;
-    const dataLimite = new Date(agora.getTime() - intervaloMs);
+  async buscarProdutosDesatualizados(
+    tenantId,
+    intervaloMinutos = this.intervaloPadraoMinutos
+  ) {
+    const intervaloMs = Math.max(intervaloMinutos, 1) * 60 * 1000;
+    const limiteData = new Date(Date.now() - intervaloMs);
 
-    // Buscar produtos com última sincronização > intervalo ou sem sincronização
     const produtos = await Produto.find({
       tenantId,
       $or: [
-        { ultimaSincronizacao: { $lt: dataLimite } },
         { ultimaSincronizacao: { $exists: false } },
         { ultimaSincronizacao: null },
+        { ultimaSincronizacao: { $lte: limiteData } },
       ],
     })
-      .select('sku tenantId ultimaSincronizacao')
-      .limit(100) // Limitar a 100 produtos por execução para não sobrecarregar
+      .sort({ ultimaSincronizacao: 1 })
+      .limit(this.maxProdutosPorExecucao)
       .lean();
 
     return produtos;
   }
 
   /**
-   * Verifica se um produto foi processado recentemente (anti-duplicação)
-   * @param {string} sku - SKU do produto
-   * @param {string} tenantId - ID do tenant
-   * @param {number} minutos - Janela de tempo em minutos
-   * @returns {Promise<boolean>} true se foi processado recentemente
+   * Verifica se o cronjob do tenant está vencido para nova execução.
+   * @param {ConfiguracaoSincronizacao} config
+   * @returns {boolean}
    */
-  async verificarAntiDuplicacaoRecente(sku, tenantId, minutos = 5) {
-    const agora = new Date();
-    const janelaMs = minutos * 60 * 1000;
-    const dataLimite = new Date(agora.getTime() - janelaMs);
-
-    // Buscar eventos processados recentes para este produto
-    const eventosRecentes = await EventoProcessado.find({
-      tenantId,
-      produtoId: sku,
-      origem: 'cronjob',
-      processadoEm: { $gte: dataLimite },
-      sucesso: true,
-    }).limit(1);
-
-    return eventosRecentes.length > 0;
-  }
-
-  /**
-   * Verifica se um produto precisa ser sincronizado
-   * Compara saldos atuais com última sincronização registrada
-   * @param {Object} produto - Produto a verificar
-   * @param {string} tenantId - ID do tenant
-   * @param {Object} config - Configuração de sincronização
-   * @returns {Promise<boolean>} true se precisa sincronizar
-   */
-  async verificarSePrecisaSincronizar(produto, tenantId, config) {
-    try {
-      // Buscar saldos atuais dos 3 depósitos principais
-      const saldos = await sincronizadorEstoqueService.buscarSaldosDepositos(
-        produto.sku,
-        tenantId,
-        config
-      );
-
-      // Calcular soma atual
-      const somaAtual = sincronizadorEstoqueService.calcularSoma(saldos);
-
-      // Buscar último evento processado com sucesso para este produto
-      const ultimoEvento = await EventoProcessado.findOne({
-        tenantId,
-        produtoId: produto.sku,
-        sucesso: true,
-      })
-        .sort({ processadoEm: -1 })
-        .lean();
-
-      // Se não há evento anterior, precisa sincronizar
-      if (!ultimoEvento || !ultimoEvento.saldos) {
-        return true;
-      }
-
-      // Comparar soma atual com soma do último evento
-      const somaAnterior = ultimoEvento.saldos.soma || 0;
-
-      // Se a soma mudou, precisa sincronizar
-      if (somaAtual !== somaAnterior) {
-        console.log(
-          `[VERIFICACAO-ESTOQUE] Produto ${produto.sku} mudou: ${somaAnterior} → ${somaAtual}`
-        );
-        return true;
-      }
-
-      // Verificar se algum saldo individual mudou (mais preciso)
-      // Comparar saldos atuais (array) com saldos anteriores (objeto ou array)
-      const saldosAnteriores = ultimoEvento.saldos || {};
-      
-      // Se saldos atuais é array, comparar cada depósito
-      if (Array.isArray(saldos)) {
-        for (const saldoAtual of saldos) {
-          // Buscar saldo anterior correspondente (pode estar em formato objeto ou array)
-          let saldoAnterior = 0;
-          
-          // Tentar encontrar por depositoId
-          if (saldosAnteriores[saldoAtual.depositoId] !== undefined) {
-            saldoAnterior = saldosAnteriores[saldoAtual.depositoId];
-          } else if (Array.isArray(saldosAnteriores)) {
-            const saldoEncontrado = saldosAnteriores.find(s => s.depositoId === saldoAtual.depositoId);
-            saldoAnterior = saldoEncontrado?.valor || 0;
-          }
-          
-          if (saldoAtual.valor !== saldoAnterior) {
-            console.log(
-              `[VERIFICACAO-ESTOQUE] Produto ${produto.sku} teve mudança em saldo do depósito ${saldoAtual.depositoId}: ${saldoAnterior} → ${saldoAtual.valor}`
-            );
-            return true;
-          }
-        }
-      } else {
-        // Fallback: se saldos não é array, comparar soma apenas
-        // (compatibilidade com formato antigo)
-        const somaAnterior = saldosAnteriores.soma || 0;
-        if (somaAtual !== somaAnterior) {
-          return true;
-        }
-      }
-
+  _deveExecutarAgora(config) {
+    if (!config?.cronjob?.ativo) {
       return false;
-    } catch (error) {
-      console.error(
-        `[VERIFICACAO-ESTOQUE] Erro ao verificar se precisa sincronizar produto ${produto.sku}:`,
-        error.message
-      );
-      // Em caso de erro, assume que precisa sincronizar (mais seguro)
+    }
+
+    const agora = Date.now();
+    const intervaloMs =
+      (config.cronjob.intervaloMinutos || this.intervaloPadraoMinutos) * 60 * 1000;
+
+    if (config.cronjob.proximaExecucao) {
+      return new Date(config.cronjob.proximaExecucao).getTime() <= agora;
+    }
+
+    if (!config.cronjob.ultimaExecucao) {
       return true;
     }
-  }
 
-  /**
-   * Busca todos os tenants com cronjob ativo
-   * @returns {Promise<Array<string>>} Lista de tenantIds
-   */
-  async buscarTenantsAtivos() {
-    const configs = await ConfiguracaoSincronizacao.find({
-      'cronjob.ativo': true,
-      ativo: true, // Sincronização geral também deve estar ativa
-    }).select('tenantId');
-
-    return configs.map((config) => config.tenantId);
+    return agora - new Date(config.cronjob.ultimaExecucao).getTime() >= intervaloMs;
   }
 }
 
-export default new VerificacaoEstoqueService();
+const verificacaoEstoqueService = new VerificacaoEstoqueService();
 
+export default verificacaoEstoqueService;

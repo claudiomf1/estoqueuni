@@ -14,7 +14,6 @@ const configuracaoSincronizacaoSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    index: true,
     trim: true,
   },
 
@@ -442,4 +441,3 @@ const ConfiguracaoSincronizacao = mongoose.model(
 );
 
 export default ConfiguracaoSincronizacao;
-

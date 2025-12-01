@@ -113,6 +113,7 @@ export async function salvarConfiguracao(
   tenantId,
   depositos,
   regraSincronizacao,
+  sincronizacaoGeralAtiva,
   setSalvando,
   setErro,
   setMensagem,
@@ -126,7 +127,8 @@ export async function salvarConfiguracao(
   try {
     const responseSave = await sincronizacaoApi.salvarConfiguracao(tenantId, {
       depositos,
-      regraSincronizacao
+      regraSincronizacao,
+      ...(typeof sincronizacaoGeralAtiva === 'boolean' ? { ativo: sincronizacaoGeralAtiva } : {})
     });
 
     if (responseSave.data?.success !== false) {

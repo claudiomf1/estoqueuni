@@ -59,3 +59,4 @@ function StatusDetalhesSincronizacao({ status }) {
 export default StatusDetalhesSincronizacao;
 
 
+

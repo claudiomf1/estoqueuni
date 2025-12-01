@@ -5,7 +5,7 @@ import verificacaoEstoqueJob from './jobs/verificacaoEstoqueJob.js';
 
 async function startServer() {
   try {
-    // Conectar ao MongoDB
+    // Conectar ao MongoDB 
     await connectDatabase();
 
     // Iniciar servidor
@@ -35,5 +35,5 @@ async function startServer() {
     process.exit(1);
   }
 }
-
+ 
 startServer();

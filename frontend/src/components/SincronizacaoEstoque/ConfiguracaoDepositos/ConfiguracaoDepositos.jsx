@@ -37,6 +37,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
       depositosCompartilhados: []
     }
   );
+  const [sincronizacaoGeralAtiva, setSincronizacaoGeralAtiva] = useState(configInicial?.ativo || false);
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState(null);
   const [erro, setErro] = useState(null);
@@ -79,6 +80,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
         depositosPrincipais: [],
         depositosCompartilhados: []
       });
+      setSincronizacaoGeralAtiva(configInicial.ativo || false);
     }
   }, [configInicial]);
 
@@ -127,6 +129,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
         tenantId,
         novosDepositos,
         novaRegraSincronizacao,
+        sincronizacaoGeralAtiva,
         setSalvando,
         setErro,
         setMensagem,
@@ -188,6 +191,7 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
       tenantId,
       depositos,
       regraSincronizacao,
+      sincronizacaoGeralAtiva,
       setSalvando,
       setErro,
       setMensagem,
@@ -239,6 +243,39 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
     setDepositoParaDeletar(null);
   };
 
+  const handleToggleSincronizacaoGeral = async (ativo) => {
+    const estadoAnterior = sincronizacaoGeralAtiva;
+    setSincronizacaoGeralAtiva(ativo);
+    setErro(null);
+    setMensagem(null);
+
+    const validacao = validarConfiguracao(depositos, regraSincronizacao);
+    if (!validacao.valido) {
+      setErro(validacao.erros.join(' '));
+      setSincronizacaoGeralAtiva(estadoAnterior);
+      return;
+    }
+
+    try {
+      await salvarConfiguracao(
+        tenantId,
+        depositos,
+        regraSincronizacao,
+        ativo,
+        setSalvando,
+        setErro,
+        setMensagem,
+        sincronizacaoApi,
+        onConfigUpdate
+      );
+      setMensagem(ativo ? 'Sincronização geral ativada!' : 'Sincronização geral desativada.');
+      setTimeout(() => setMensagem(null), 5000);
+    } catch (err) {
+      // mensagem tratada no helper; reverter estado visual
+      setSincronizacaoGeralAtiva(estadoAnterior);
+    }
+  };
+
   const cancelarDelecao = () => {
     setMostrarModalConfirmacao(false);
     setDepositoParaDeletar(null);
@@ -284,6 +321,20 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
             handleDepositoChange={handleDepositoChange}
             handleRemoverDeposito={handleRemoverDeposito}
           />
+
+          <Form.Group className="mb-4">
+            <Form.Check
+              type="switch"
+              id="sincronizacao-geral"
+              label="Ativar Sincronização Geral"
+              checked={sincronizacaoGeralAtiva}
+              disabled={salvando}
+              onChange={(e) => handleToggleSincronizacaoGeral(e.target.checked)}
+            />
+            <Form.Text className="text-muted">
+              Ao ativar, o EstoqueUni executa a sincronização automática para este tenant quando tudo estiver configurado.
+            </Form.Text>
+          </Form.Group>
 
           <RegraSincronizacao
             depositos={depositos}
@@ -367,4 +418,3 @@ export default function ConfiguracaoDepositos({ tenantId, config: configInicial,
     </Card>
   );
 }
-
