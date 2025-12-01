@@ -39,12 +39,20 @@ class SincronizadorEstoqueService {
     }
 
     const configObj = config.toObject();
-    await this._validarProdutoSimples(produtoId, tenantId, configObj);
+    const produtoDetalhes = await this._validarProdutoSimples(produtoId, tenantId, configObj);
+    const mapaDepositosMonitorados = this._mapearDepositosPrincipaisPorConta(configObj);
 
-    const { total, estoquePorConta, erros } =
-      await blingEstoqueUnificadoService.buscarEstoqueUnificado(tenantId, produtoId);
+    const { total, estoquePorConta, erros, detalhesPorConta } =
+      await blingEstoqueUnificadoService.buscarEstoqueUnificado(
+        tenantId,
+        produtoId,
+        mapaDepositosMonitorados
+      );
 
-    const saldosArray = this._mapearSaldosPrincipais(configObj, estoquePorConta);
+    const saldosArray = this._mapearSaldosPrincipais(
+      configObj,
+      detalhesPorConta || estoquePorConta
+    );
     const soma = this.calcularSoma(saldosArray);
     const compartilhadosAtualizados = await this._atualizarDepositosCompartilhados(
       produtoId,
@@ -89,7 +97,27 @@ class SincronizadorEstoqueService {
     return saldos.reduce((acc, saldo) => acc + (Number(saldo.valor) || 0), 0);
   }
 
-  _mapearSaldosPrincipais(config, estoquePorConta) {
+  _mapearDepositosPrincipaisPorConta(config) {
+    const mapa = {};
+    const depositosPrincipais = config?.regraSincronizacao?.depositosPrincipais || [];
+    if (!Array.isArray(depositosPrincipais) || depositosPrincipais.length === 0) {
+      return mapa;
+    }
+
+    (config.depositos || []).forEach((deposito) => {
+      if (
+        deposito?.id &&
+        deposito?.contaBlingId &&
+        depositosPrincipais.includes(deposito.id)
+      ) {
+        mapa[deposito.id] = deposito.contaBlingId;
+      }
+    });
+
+    return mapa;
+  }
+
+  _mapearSaldosPrincipais(config, detalhesPorConta = {}) {
     const depositosPrincipais = config?.regraSincronizacao?.depositosPrincipais || [];
     if (depositosPrincipais.length === 0) {
       return [];
@@ -101,7 +129,10 @@ class SincronizadorEstoqueService {
     for (const depositoId of depositosPrincipais) {
       const deposito = mapaDepositos.get(depositoId) || { nome: 'Depósito', contaBlingId: null };
       const contaId = deposito.contaBlingId;
-      const valor = contaId ? estoquePorConta?.[contaId] || 0 : 0;
+      const contaDetalhes = contaId ? detalhesPorConta?.[contaId] : null;
+      const valor = contaId
+        ? this._obterSaldoPorDeposito(contaDetalhes, depositoId, contaId)
+        : 0;
       saldos.push({
         depositoId,
         nomeDeposito: deposito.nome || depositoId,
@@ -111,6 +142,44 @@ class SincronizadorEstoqueService {
     }
 
     return saldos;
+  }
+
+  _obterSaldoPorDeposito(contaDetalhes, depositoId, contaId) {
+    if (contaDetalhes === undefined || contaDetalhes === null) {
+      console.warn(
+        `[SINCRONIZADOR] ⚠️ Saldo não encontrado para conta ${contaId} ao buscar depósito ${depositoId}.`
+      );
+      return 0;
+    }
+
+    if (typeof contaDetalhes === 'number') {
+      return contaDetalhes;
+    }
+
+    if (typeof contaDetalhes === 'object') {
+      if (contaDetalhes.monitorados && depositoId) {
+        const chave = String(depositoId);
+        if (Object.prototype.hasOwnProperty.call(contaDetalhes.monitorados, chave)) {
+          return contaDetalhes.monitorados[chave];
+        }
+      }
+
+      if (contaDetalhes.depositos && depositoId) {
+        const chave = String(depositoId);
+        if (Object.prototype.hasOwnProperty.call(contaDetalhes.depositos, chave)) {
+          return contaDetalhes.depositos[chave];
+        }
+      }
+
+      if (typeof contaDetalhes.total === 'number') {
+        console.warn(
+          `[SINCRONIZADOR] ⚠️ Depósito ${depositoId} não encontrado na conta ${contaId}. Utilizando total da conta (${contaDetalhes.total}).`
+        );
+        return contaDetalhes.total;
+      }
+    }
+
+    return 0;
   }
 
   async _atualizarDepositosCompartilhados(

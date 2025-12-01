@@ -27,6 +27,14 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Fallback simples para evitar 404 no root
+app.get(['/', '/index.htm'], (req, res) => {
+  res.json({
+    service: 'estoqueuni-backend',
+    message: 'API disponível. Utilize /health ou /api/*',
+  });
+});
+
 // Rota pública para obter token (usada pelo backend-ai)
 app.post('/getToken', getTokenHandler);
 

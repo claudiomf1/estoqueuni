@@ -1,5 +1,6 @@
 import { adicionarEventoNaFila } from '../services/queueService.js';
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
+import Tenant from '../models/Tenant.js';
 import { processarWebhookVenda } from '../utils/processarWebhookVenda.js';
 
 /**
@@ -29,6 +30,23 @@ class WebhookController {
     }
   }
 
+  async buscarNomeTenant(tenantId) {
+    if (!tenantId) {
+      return null;
+    }
+
+    try {
+      const tenant = await Tenant.findById(tenantId).select('nome usuario').lean();
+      if (!tenant) {
+        return null;
+      }
+      return tenant.nome || tenant.usuario || null;
+    } catch (error) {
+      console.warn(`[Webhook] ⚠️ Erro ao buscar nome do tenant ${tenantId}: ${error.message}`);
+      return null;
+    }
+  }
+
   /**
    * Recebe webhook do Bling e adiciona evento na fila
    * POST /api/webhooks/bling?tenantId=xxx (opcional)
@@ -39,15 +57,23 @@ class WebhookController {
     const inicioProcessamento = Date.now();
     
     try {
+      const timestampUTC = new Date();
+      const timestampBrasil = timestampUTC.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      });
+      const tenantIdInicial = req.body?.tenantId || req.query?.tenantId || null;
+
       // Log do recebimento
       console.log('[Webhook] 📥 Webhook recebido do Bling:', {
-        timestamp: new Date().toISOString(),
+        timestampUTC: timestampUTC.toISOString(),
+        timestampBrasil,
         headers: {
           'user-agent': req.headers['user-agent'],
           'content-type': req.headers['content-type'],
         },
         bodyKeys: Object.keys(req.body || {}),
         query: req.query,
+        tenantDetectado: tenantIdInicial,
       });
       
       // Validação básica do body
@@ -61,7 +87,7 @@ class WebhookController {
       }
 
       // Tentar obter tenantId de várias formas
-      let tenantId = req.body.tenantId || req.query.tenantId || null;
+      let tenantId = tenantIdInicial;
       let blingAccountId = req.body.blingAccountId || req.body.accountId || req.body.contaBlingId || null;
 
       // Se não tem tenantId mas tem blingAccountId, buscar no banco
@@ -69,6 +95,14 @@ class WebhookController {
         tenantId = await this.buscarTenantPorBlingAccount(blingAccountId);
         if (tenantId) {
           console.log(`[Webhook] 🔍 TenantId identificado via blingAccountId: ${tenantId}`);
+        }
+      }
+
+      let tenantNome = null;
+      if (tenantId) {
+        tenantNome = await this.buscarNomeTenant(tenantId);
+        if (tenantNome) {
+          console.log(`[Webhook] 🏷️ Tenant identificado: ${tenantNome} (${tenantId})`);
         }
       }
 
@@ -233,6 +267,3 @@ class WebhookController {
 }
 
 export default WebhookController;
-
-
-

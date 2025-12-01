@@ -358,7 +358,7 @@ class BlingService {
 
     try {
       // Campos básicos sempre incluídos
-      let campos = 'codigo,estoque,nome,id';
+      let campos = 'codigo,estoque,nome,id,depositos';
       
       // Se precisar de detalhes, incluir formato e tipo para detectar produtos compostos
       if (incluirDetalhes) {
@@ -421,6 +421,73 @@ class BlingService {
         error.message
       );
       throw error;
+    }
+  }
+
+  /**
+   * Obtém saldo do produto em um depósito específico
+   * @param {string|number} produtoId
+   * @param {string|number} depositoId
+   * @param {string} tenantId
+   * @param {string} blingAccountId
+   * @returns {Promise<number>}
+   */
+  async getSaldoProdutoPorDeposito(produtoId, depositoId, tenantId, blingAccountId) {
+    if (!produtoId || !depositoId) {
+      throw new Error('produtoId e depositoId são obrigatórios para consultar saldo');
+    }
+
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+    try {
+      const response = await axios.get(
+        `${this.apiUrl}/estoques/saldos/${depositoId}`,
+        {
+          params: {
+            idsProdutos: [produtoId],
+          },
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const registros = response.data?.data || [];
+      const registro = registros.find((item) => item?.produto?.id === produtoId);
+      if (!registro) {
+        return 0;
+      }
+
+      return (
+        Number(registro.saldoVirtualTotal) ||
+        Number(registro.saldoFisicoTotal) ||
+        0
+      );
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      console.error(
+        `[BLING-SERVICE] ❌ Erro ao buscar saldo do produto ${produtoId} no depósito ${depositoId}:`,
+        JSON.stringify(
+          {
+            status,
+            statusText: error.response?.statusText,
+            data,
+            reason,
+          },
+          null,
+          2
+        )
+      );
+
+      throw new Error(`Falha ao consultar saldo do depósito ${depositoId}: ${reason}`);
     }
   }
 

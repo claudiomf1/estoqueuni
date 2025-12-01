@@ -65,14 +65,39 @@ export function extrairProdutosDoPedido(payload) {
  * @param {Object} payload - Payload do webhook
  * @returns {string} Tipo do evento: 'venda', 'pedido', 'estoque', 'desconhecido'
  */
+function normalizarTexto(valor) {
+  if (!valor || typeof valor !== 'string') {
+    return '';
+  }
+  return valor.toLowerCase();
+}
+
 export function identificarTipoEvento(payload) {
+  const eventNome = normalizarTexto(payload.event || payload.tipo || payload.type);
+  const dataTipo = normalizarTexto(payload.data?.tipo || payload.data?.type);
+
   // Verifica se é um pedido de venda
-  if (payload.pedido || payload.data?.pedido || payload.itens || payload.tipo === 'pedido' || payload.type === 'pedido') {
+  if (
+    payload.pedido ||
+    payload.data?.pedido ||
+    payload.itens ||
+    eventNome.includes('pedido') ||
+    dataTipo.includes('pedido') ||
+    eventNome.includes('sale')
+  ) {
     return 'venda';
   }
 
   // Verifica se é evento de estoque
-  if (payload.estoque || payload.data?.estoque || payload.tipo === 'estoque' || payload.type === 'estoque') {
+  if (
+    payload.estoque ||
+    payload.data?.estoque ||
+    eventNome.includes('estoque') ||
+    dataTipo.includes('estoque') ||
+    eventNome.includes('stock') ||
+    dataTipo.includes('stock') ||
+    eventNome.includes('inventory')
+  ) {
     return 'estoque';
   }
 
@@ -82,6 +107,74 @@ export function identificarTipoEvento(payload) {
   }
 
   return 'desconhecido';
+}
+
+function extrairProdutoEstoque(payload) {
+  const candidatos = [
+    payload,
+    payload.data,
+    payload.data?.produto,
+    payload.data?.product,
+    payload.data?.estoque?.produto,
+    payload.data?.estoque?.product,
+    payload.data?.stock?.produto,
+    payload.data?.stock?.product,
+    payload.data?.item,
+    payload.produto,
+    payload.product,
+  ].filter(Boolean);
+
+  for (const item of candidatos) {
+    const sku =
+      item.codigo ||
+      item.codigoPai ||
+      item.codigoProduto ||
+      item.sku ||
+      item.SKU ||
+      item.idProdutoLoja;
+    if (sku) {
+      return { produtoId: String(sku), origem: 'sku' };
+    }
+
+    const id = item.id || item.produtoId || item.productId;
+    if (id) {
+      return { produtoId: String(id), origem: 'id' };
+    }
+  }
+
+  const direto = payload.produtoId || payload.idProduto || payload.productId || payload.sku;
+  if (direto) {
+    return { produtoId: String(direto), origem: 'direto' };
+  }
+
+  return { produtoId: null, origem: null };
+}
+
+function extrairDeposito(payload) {
+  const candidatos = [
+    payload.deposito,
+    payload.data?.deposito,
+    payload.data?.stock?.deposito,
+    payload.data?.estoque?.deposito,
+    payload.data?.deposit,
+    payload.data?.stock?.deposit,
+    payload.data?.estoque?.deposit,
+  ].filter(Boolean);
+
+  for (const deposito of candidatos) {
+    const id = deposito.id || deposito.depositoId || deposito.depositId || deposito.codigo;
+    if (id) {
+      return String(id);
+    }
+  }
+
+  return (
+    payload.depositoId ||
+    payload.idDeposito ||
+    payload.depositId ||
+    payload.data?.depositoId ||
+    null
+  );
 }
 
 /**
@@ -150,13 +243,14 @@ export function processarWebhookVenda(payload, tenantId = null, blingAccountId =
   } else if (tipoEvento === 'estoque') {
     // Evento direto de estoque (não é venda)
     const eventoId = payload.eventoId || payload.idEvento || payload.eventId || `estoque-${Date.now()}`;
-    const produtoId = payload.produtoId || payload.idProduto || payload.productId;
+    const produtoExtraido = extrairProdutoEstoque(payload);
+    const produtoId = produtoExtraido.produtoId;
 
     if (produtoId) {
       eventos.push({
         produtoId: String(produtoId),
         eventoId: eventoId,
-        depositoId: payload.depositoId || payload.idDeposito || payload.depositId || null,
+        depositoId: extrairDeposito(payload),
         tenantId: tenantId,
         blingAccountId: blingAccountId || payload.blingAccountId || payload.accountId,
         tipo: 'estoque',
@@ -164,11 +258,19 @@ export function processarWebhookVenda(payload, tenantId = null, blingAccountId =
         dados: payload,
         recebidoEm: new Date().toISOString(),
       });
+    } else {
+      console.warn('[Webhook-Venda] ⚠️ Evento de estoque sem produtoId identificável', {
+        event: payload.event,
+        dataKeys: Object.keys(payload.data || {}),
+      });
     }
+  } else {
+    console.warn('[Webhook-Venda] ⚠️ Evento desconhecido. Conteúdo:', {
+      event: payload.event,
+      tipo: payload.tipo,
+      dataKeys: Object.keys(payload.data || {}),
+    });
   }
 
   return eventos;
 }
-
-
-

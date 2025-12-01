@@ -19,16 +19,72 @@ function normalizeSku(sku) {
  * Serviço de Estoque Unificado
  * Agrega estoque de múltiplas contas Bling
  */
+const extrairSaldosDepositos = (produto) => {
+  const saldos = {};
+  if (!produto) {
+    return saldos;
+  }
+
+  const candidatos = [];
+  if (Array.isArray(produto.estoque?.depositos)) {
+    candidatos.push(...produto.estoque.depositos);
+  }
+  if (Array.isArray(produto.depositos)) {
+    candidatos.push(...produto.depositos);
+  }
+  if (Array.isArray(produto.estoque?.saldosPorDeposito)) {
+    candidatos.push(...produto.estoque.saldosPorDeposito);
+  }
+  if (Array.isArray(produto.estoque?.stocks)) {
+    candidatos.push(...produto.estoque.stocks);
+  }
+
+  for (const item of candidatos) {
+    if (!item) continue;
+    const deposito =
+      item.deposito ||
+      item.deposit ||
+      item.local ||
+      item;
+    const id =
+      deposito?.id ||
+      item.idDeposito ||
+      item.depositoId ||
+      item.depositId ||
+      deposito?.codigo;
+
+    if (!id) continue;
+
+    const valor =
+      Number(
+        item.saldo ??
+          item.saldoVirtual ??
+          item.saldoDisponivel ??
+          item.saldoAtual ??
+          item.quantidade ??
+          item.saldoFisico ??
+          item.saldoVirtualTotal ??
+          deposito?.saldo
+      ) || 0;
+
+    const chave = String(id);
+    saldos[chave] = (saldos[chave] || 0) + valor;
+  }
+
+  return saldos;
+};
+
 class BlingEstoqueUnificadoService {
   /**
    * Busca estoque unificado de um produto em todas as contas ativas
    * @param {string} tenantId
    * @param {string} sku
-   * @returns {Promise<{total: number, estoquePorConta: Object, erros: Array}>}
+   * @returns {Promise<{total: number, estoquePorConta: Object, erros: Array, detalhesPorConta: Object}>}
    */
-  async buscarEstoqueUnificado(tenantId, sku) {
+  async buscarEstoqueUnificado(tenantId, sku, mapaDepositosMonitorados = {}) {
     const skuNormalizado = normalizeSku(sku);
     const estoquePorConta = {};
+    const detalhesPorConta = {};
     const erros = [];
     let total = 0;
 
@@ -56,23 +112,75 @@ class BlingEstoqueUnificadoService {
     // Processar todas as contas em paralelo
     const promessas = contas.map(async (conta) => {
       try {
-        const estoque = await blingService.getEstoqueProduto(
+        const produto = await blingService.getProdutoPorSku(
           skuNormalizado,
           tenantId,
-          conta.blingAccountId
+          conta.blingAccountId,
+          true
         );
 
-        estoquePorConta[conta.blingAccountId] = estoque;
-        total += estoque;
+        const saldosDepositos = extrairSaldosDepositos(produto);
+        let estoqueConta = Object.values(saldosDepositos).reduce(
+          (acc, valor) => acc + (Number(valor) || 0),
+          0
+        );
+
+        if (!Number.isFinite(estoqueConta) || estoqueConta === 0) {
+          estoqueConta =
+            Number(produto?.estoque?.saldoVirtualTotal) ||
+            Number(produto?.saldoInventario) ||
+            0;
+        }
+
+        const saldosMonitorados = {};
+        const depositosDaConta = Object.entries(mapaDepositosMonitorados || {}).filter(
+          ([, contaId]) => contaId === conta.blingAccountId
+        );
+
+        for (const [depositoId] of depositosDaConta) {
+          try {
+            const saldoDeposito = await blingService.getSaldoProdutoPorDeposito(
+              produto?.id,
+              depositoId,
+              tenantId,
+              conta.blingAccountId
+            );
+            saldosMonitorados[depositoId] = saldoDeposito;
+          } catch (errorSaldo) {
+            console.warn(
+              `[ESTOQUE-UNIFICADO] ⚠️ Não foi possível obter saldo do depósito ${depositoId} para conta ${conta.accountName}: ${errorSaldo.message}`
+            );
+            saldosMonitorados[depositoId] = 0;
+          }
+        }
+
+        estoquePorConta[conta.blingAccountId] = estoqueConta;
+        detalhesPorConta[conta.blingAccountId] = {
+          total: estoqueConta,
+          depositos: saldosDepositos,
+          monitorados: saldosMonitorados,
+          contaId: conta.blingAccountId,
+          contaNome: conta.accountName,
+          produtoId: produto?.id || null,
+        };
+        total += estoqueConta;
 
         console.log(
-          `[ESTOQUE-UNIFICADO] Conta ${conta.blingAccountId} (${conta.accountName}): ${estoque} unidades`
+          `[ESTOQUE-UNIFICADO] Conta ${conta.blingAccountId} (${conta.accountName}): ${estoqueConta} unidades`
         );
       } catch (error) {
         const erroMsg = `Conta ${conta.blingAccountId} (${conta.accountName}): ${error.message}`;
         console.error(`[ESTOQUE-UNIFICADO] ❌ ${erroMsg}`);
         erros.push(erroMsg);
         estoquePorConta[conta.blingAccountId] = 0; // Usar 0 se falhar
+        detalhesPorConta[conta.blingAccountId] = {
+          total: 0,
+          depositos: {},
+          monitorados: {},
+          contaId: conta.blingAccountId,
+          contaNome: conta.accountName,
+          produtoId: null,
+        };
       }
     });
 
@@ -85,7 +193,8 @@ class BlingEstoqueUnificadoService {
     return {
       total,
       estoquePorConta,
-      erros
+      erros,
+      detalhesPorConta,
     };
   }
 
