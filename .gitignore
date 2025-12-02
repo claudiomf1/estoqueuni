@@ -34,3 +34,65 @@ coverage/
 # Misc
 *.pem
 .cache/
+
+# Arquivos de teste com chaves de API e secrets
+teste*.js
+teste*.ts
+teste*.jsx
+teste*.tsx
+*teste*.js
+*teste*.ts
+*teste*.jsx
+*teste*.tsx
+*secret*.js
+*secret*.ts
+*key*.js
+*key*.ts
+*api*.test.js
+*api*.test.ts
+
+# Arquivos com possíveis secrets
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+*.credentials
+*.secrets
+*.tokens
+
+# Arquivos temporários e de desenvolvimento
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Arquivos de configuração local
+.env.local
+.env.*.local
+config.local.*
+*.local.*
+
+# Arquivos de IDE específicos
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
