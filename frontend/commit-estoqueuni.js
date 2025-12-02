@@ -47,6 +47,8 @@ const OPENAI_MODEL_ENV = process.env.OPENAI_MODEL;
 const OPENAI_API_KEY_ENV = process.env.OPENAI_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const TARGET_OPENAI_MODEL =
+  MODELO_USADO_NO_COMMIT === "OPENAI_MODEL" ? OPENAI_MODEL_ENV : MODELO_USADO_NO_COMMIT;
 
 console.log(`🔍 MODELO_usado_no_commit: ${MODELO_USADO_NO_COMMIT || 'não definido'}`);
 console.log(`🔍 OPENAI_MODEL: ${OPENAI_MODEL_ENV || 'não definido'}`);
@@ -55,10 +57,11 @@ console.log(`🔍 GEMINI_API_KEY: ${GEMINI_API_KEY ? 'EXISTE' : 'NÃO EXISTE'}`)
 console.log(`🔍 GEMINI_MODEL: ${GEMINI_MODEL}`);
 
 // Determinar qual provider usar
-const USAR_OPENAI_POR_CONFIG = MODELO_USADO_NO_COMMIT && 
-                                OPENAI_MODEL_ENV && 
-                                MODELO_USADO_NO_COMMIT === OPENAI_MODEL_ENV && 
-                                OPENAI_API_KEY_ENV;
+const USAR_OPENAI_POR_CONFIG =
+  TARGET_OPENAI_MODEL &&
+  OPENAI_MODEL_ENV &&
+  TARGET_OPENAI_MODEL === OPENAI_MODEL_ENV &&
+  OPENAI_API_KEY_ENV;
 
 console.log(`🔍 USAR_OPENAI_POR_CONFIG: ${USAR_OPENAI_POR_CONFIG ? 'SIM' : 'NÃO'}`);
 
@@ -264,27 +267,41 @@ const generateAIMessageWithOpenAI = async (context) => {
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
+    const userContent =
+      "Você gera mensagens de commit no padrão Conventional Commits (pt-BR). " +
+      'Com base no CONTEXTO abaixo (arquivos alterados e trechos do diff), ' +
+      'responda **APENAS** com UMA única linha no formato "tipo(scope opcional): descrição". ' +
+      "Sem explicações, sem crases, sem markdown, sem múltiplas linhas. " +
+      "A descrição deve refletir precisamente as mudanças. " +
+      "Tipos possíveis: feat, fix, perf, refactor, chore, test, docs, build, ci. " +
+      "Máximo de 300 caracteres.\n\n" +
+      "--- CONTEXTO ---\n" +
+      context;
+
     const resp = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
+      "https://api.openai.com/v1/responses",
       {
         model: OPENAI_MODEL,
-        temperature: 0.2,
-        max_tokens: 80,
-        messages: [
+        max_output_tokens: 400,
+        reasoning: { effort: "low" },
+        input: [
           {
             role: "system",
-            content: "Você gera mensagens de commit no padrão Conventional Commits (pt-BR).",
+            content: [
+              {
+                type: "input_text",
+                text: "Você gera mensagens de commit no padrão Conventional Commits (pt-BR).",
+              },
+            ],
           },
           {
             role: "user",
-            content: "Com base no CONTEXTO abaixo (arquivos alterados e trechos do diff), " +
-                     'responda **APENAS** com UMA única linha no formato "tipo(scope opcional): descrição". ' +
-                     "Sem explicações, sem crases, sem markdown, sem múltiplas linhas. " +
-                     "A descrição deve refletir precisamente as mudanças. " +
-                     "Tipos possíveis: feat, fix, perf, refactor, chore, test, docs, build, ci. " +
-                     "Máximo de 300 caracteres.\n\n" +
-                     "--- CONTEXTO ---\n" +
-                     context,
+            content: [
+              {
+                type: "input_text",
+                text: userContent,
+              },
+            ],
           },
         ],
       },
@@ -298,11 +315,56 @@ const generateAIMessageWithOpenAI = async (context) => {
       }
     );
     clearTimeout(timeout);
-    const raw = resp?.data?.choices?.[0]?.message?.content?.trim();
-    if (!raw) throw new Error("Resposta vazia da OpenAI.");
+
+    const outputData = resp?.data || {};
+    const output = outputData.output || [];
+    const raw = [
+      ...(typeof outputData.output_text === "string" ? [outputData.output_text] : []),
+      ...(typeof outputData.response?.output_text === "string" ? [outputData.response.output_text] : []),
+      ...output
+        .flatMap((chunk) => {
+          if (!chunk || !Array.isArray(chunk.content)) return [];
+          return chunk.content;
+        })
+        .map((part) => {
+          if (!part) return "";
+          if (typeof part === "string") return part;
+          if (typeof part.text === "string") return part.text;
+          if (typeof part.output_text === "string") return part.output_text;
+          if (typeof part.value === "string") return part.value;
+          if (Array.isArray(part.content))
+            return part.content
+              .map((item) => (item?.text ? item.text : item?.value || item?.output_text || ""))
+              .join("\n");
+          return "";
+        }),
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+
+    if (!raw) {
+      console.error("⚠️  Resposta sem conteúdo da OpenAI:", JSON.stringify(resp?.data || {}, null, 2));
+      throw new Error("Resposta vazia da OpenAI.");
+    }
     return normalizeCommit(raw);
   } catch (err) {
     clearTimeout(timeout);
+    console.error("⚠️  Detalhe do erro da OpenAI:", err?.response?.data || err.message || err);
+    if (err?.response?.data) {
+      try {
+        console.error("⚠️  Resposta bruta da OpenAI:", JSON.stringify(err.response.data, null, 2));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (err?.response && err.response.data && !err.response.data.output && err.response.data.response) {
+      try {
+        console.error("⚠️  Campo response da OpenAI:", JSON.stringify(err.response.data.response, null, 2));
+      } catch {
+        /* ignore */
+      }
+    }
     throw err;
   }
 };
