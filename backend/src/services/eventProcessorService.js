@@ -1,7 +1,8 @@
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
 import EventoProcessado from '../models/EventoProcessado.js';
 import sincronizadorEstoqueService from './sincronizadorEstoqueService.js';
-import { getBrazilNow } from '../utils/timezone.js';
+import autoUpdateTracker from './autoUpdateTracker.js';
+import { getBrazilNow } from '../utils/timezone.js'; 
 
 /**
  * Serviço de Processamento de Eventos da Fila
@@ -115,6 +116,25 @@ class EventProcessorService {
           ignorado: true,
           motivo: 'Evento já processado',
           chaveUnica,
+          tenantId: tenantIdFinal,
+        };
+      }
+
+      if (
+        autoUpdateTracker.ehEventoGeradoPorAtualizacaoAutomatica({
+          tenantId: tenantIdFinal,
+          depositoId: evento.depositoId,
+          produtoId: evento.produtoId
+        })
+      ) {
+        console.log(
+          `[EVENT-PROCESSOR] ⚠️ Evento gerado pela sincronização automática - Produto: ${evento.produtoId}, Depósito: ${evento.depositoId || 'N/A'}`
+        );
+        return {
+          ignorado: true,
+          motivo: 'Evento gerado por atualização automática',
+          produtoId: evento.produtoId,
+          depositoId: evento.depositoId,
           tenantId: tenantIdFinal,
         };
       }

@@ -11,6 +11,10 @@ class BlingService {
     this.clientSecret = process.env.BLING_CLIENT_SECRET;
     this.redirectUri = this.resolverRedirectPadrao();
     this.apiUrl = 'https://www.bling.com.br/Api/v3';
+    this._rateLimiter = Promise.resolve();
+    this._lastRequestTimestamp = 0; 
+    this._minRequestIntervalMs =
+      Number(process.env.BLING_MIN_REQUEST_INTERVAL_MS) || 700;
   }
 
   /**
@@ -344,6 +348,25 @@ class BlingService {
     return newTokens.access_token;
   }
 
+  async _waitForRateLimit() {
+    const job = this._rateLimiter.then(async () => {
+      const agora = Date.now();
+      const intervalo = Math.max(
+        0,
+        this._minRequestIntervalMs - (agora - this._lastRequestTimestamp)
+      );
+
+      if (intervalo > 0) {
+        await new Promise((resolve) => setTimeout(resolve, intervalo));
+      }
+
+      this._lastRequestTimestamp = Date.now();
+    });
+
+    this._rateLimiter = job;
+    await job;
+  }
+
   // ===== API METHODS =====
 
   /**
@@ -367,6 +390,7 @@ class BlingService {
       const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
       try {
+        await this._waitForRateLimit();
         // Campos básicos sempre incluídos
         let campos = 'codigo,estoque,nome,id,depositos';
         
@@ -445,6 +469,7 @@ class BlingService {
       const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
       try {
+        await this._waitForRateLimit();
         let campos = 'codigo,estoque,nome,id,depositos';
         if (incluirDetalhes) {
           campos += ',formato,tipo,situacao';
@@ -552,6 +577,7 @@ class BlingService {
       const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
 
       try {
+        await this._waitForRateLimit();
         const response = await axios.get(
           `${this.apiUrl}/estoques/saldos/${depositoId}`,
           {
@@ -1082,6 +1108,7 @@ class BlingService {
     payload.observacao = descricaoObservacao;
 
     try {
+      await this._waitForRateLimit();
       const response = await axios.post(
         `${this.apiUrl}/estoques`,
         payload,

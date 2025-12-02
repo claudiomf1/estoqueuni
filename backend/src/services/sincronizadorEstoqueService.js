@@ -5,7 +5,8 @@ import Produto from '../models/Produto.js';
 import blingEstoqueUnificadoService from './blingEstoqueUnificadoService.js';
 import blingService from './blingService.js';
 import BlingConfig from '../models/BlingConfig.js';
-import { getBrazilNow } from '../utils/timezone.js';
+import autoUpdateTracker from './autoUpdateTracker.js'; 
+import { getBrazilNow } from '../utils/timezone.js'; 
 
 const logWithTimestamp = (fn, message) => {
   const iso = getBrazilNow().toISOString();
@@ -457,6 +458,12 @@ class SincronizadorEstoqueService {
           produtoIdBling: produtoInfo.id,
           sku,
           origem,
+        });
+
+        autoUpdateTracker.registrarAtualizacaoAutomatica({
+          tenantId,
+          depositoId: deposito.id,
+          produtoId: String(produtoInfo.id || sku),
         });
 
         resultados.push({
