@@ -122,7 +122,12 @@ class EventProcessorService {
       }
 
       // 2. Verificar anti-duplicação
-      const chaveUnica = EventoProcessado.criarChaveUnica(evento.produtoId, evento.eventoId);
+      const chaveUnica = EventoProcessado.criarChaveUnica(
+        evento.produtoId,
+        evento.eventoId,
+        evento.depositoId,
+        evento?.dados?.quantidade
+      );
 
       const jaProcessado = await EventoProcessado.verificarSeProcessado(
         chaveUnica,
@@ -297,7 +302,12 @@ class EventProcessorService {
 
       // Tentar registrar evento com erro
       try {
-        const chaveUnica = EventoProcessado.criarChaveUnica(evento.produtoId, evento.eventoId);
+        const chaveUnica = EventoProcessado.criarChaveUnica(
+          evento.produtoId,
+          evento.eventoId,
+          evento.depositoId,
+          evento?.dados?.quantidade
+        );
         await EventoProcessado.create({
           tenantId: tenantIdFinal,
           blingAccountId: evento.blingAccountId || null,

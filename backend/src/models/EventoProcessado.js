@@ -100,11 +100,26 @@ const eventoProcessadoSchema = new mongoose.Schema(
 eventoProcessadoSchema.index({ tenantId: 1, processadoEm: -1 });
 eventoProcessadoSchema.index({ origem: 1, processadoEm: -1 });
 
-eventoProcessadoSchema.statics.criarChaveUnica = function (produtoId, eventoId) {
+eventoProcessadoSchema.statics.criarChaveUnica = function (
+  produtoId,
+  eventoId,
+  depositoId = null,
+  quantidade = null
+) {
   if (!produtoId || !eventoId) {
     return null;
   }
-  return `${produtoId}-${eventoId}`;
+  const partes = [produtoId, eventoId];
+  if (depositoId) {
+    partes.push(`dep:${depositoId}`);
+  }
+  if (quantidade !== null && quantidade !== undefined) {
+    const q = Number(quantidade);
+    if (Number.isFinite(q)) {
+      partes.push(`q:${q}`);
+    }
+  }
+  return partes.join('-');
 };
 
 eventoProcessadoSchema.statics.verificarSeProcessado = async function (

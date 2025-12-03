@@ -536,6 +536,49 @@ class SincronizadorEstoqueService {
           }
         }
 
+        // Buscar saldo atual se ainda não foi obtido (para idempotência)
+        if (saldoAtualDeposito === null) {
+          try {
+            saldoAtualDeposito = await blingService.getSaldoProdutoPorDeposito(
+              produtoInfo.id,
+              deposito.id,
+              tenantId,
+              deposito.contaBlingId
+            );
+          } catch (errorSaldo) {
+            logWithTimestamp(
+              console.warn,
+              `[SINCRONIZADOR] ⚠️ Falha ao ler saldo do depósito ${deposito.id} para idempotência: ${errorSaldo.message}`
+            );
+          }
+        }
+
+        // Se já está no valor desejado, evita movimentação e loga
+        const saldoAtualComparacao =
+          saldoAtualDeposito !== null && saldoAtualDeposito !== undefined
+            ? Number(saldoAtualDeposito)
+            : null;
+        if (saldoAtualComparacao !== null && saldoAtualComparacao === Number(quantidadeDestino)) {
+          logWithTimestamp(
+            console.log,
+            `[SINCRONIZADOR] ⏭️ Depósito ${deposito.id} já está na quantidade alvo (${quantidadeDestino}). Pulando movimentação.`
+          );
+          resultados.push({
+            depositoId: deposito.id,
+            nomeDeposito: deposito.nome || deposito.id,
+            contaBlingId: deposito.contaBlingId,
+            sucesso: true,
+            mensagem: 'Depósito já estava na quantidade alvo (idempotente)',
+            retornoBling: null,
+          });
+          autoUpdateTracker.registrarAtualizacaoAutomatica({
+            tenantId,
+            depositoId: deposito.id,
+            produtoId: String(produtoInfo.id || sku),
+          });
+          continue;
+        }
+
         logWithTimestamp(
           console.log,
           `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${contaNome} (${deposito.contaBlingId}) com quantidade ${quantidadeDestino} (tenant ${tenantId}, origem ${origem})`

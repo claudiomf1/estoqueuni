@@ -5,7 +5,8 @@
  * e ignoramos o próximo evento correspondente.
  */ 
 
-const TTL_MS = 30_000;
+// Janela de bloqueio (0 = desativado)
+const TTL_MS = 0;
 const MAX_REGISTRATIONS_PER_KEY = 5;
 const cache = new Map();
 const cacheProduto = new Map();
@@ -21,6 +22,10 @@ function montarChaveProduto(tenantId, produtoId) {
 }
 
 function registrarAtualizacaoAutomatica({ tenantId, depositoId, produtoId }) {
+  if (TTL_MS <= 0) {
+    return;
+  }
+
   const chave = montarChave(tenantId, depositoId, produtoId);
   if (!chave) {
     return;
@@ -78,6 +83,10 @@ function registrarAtualizacaoAutomatica({ tenantId, depositoId, produtoId }) {
 }
 
 function ehEventoGeradoPorAtualizacaoAutomatica({ tenantId, depositoId, produtoId }) {
+  if (TTL_MS <= 0) {
+    return false;
+  }
+
   const chave = montarChave(tenantId, depositoId, produtoId);
   if (!chave) {
     return false;
@@ -104,6 +113,10 @@ function ehEventoGeradoPorAtualizacaoAutomatica({ tenantId, depositoId, produtoI
 }
 
 function ehEventoGeradoPorAtualizacaoAutomaticaProduto({ tenantId, produtoId }) {
+  if (TTL_MS <= 0) {
+    return false;
+  }
+
   const chave = montarChaveProduto(tenantId, produtoId);
   if (!chave) {
     return false;
