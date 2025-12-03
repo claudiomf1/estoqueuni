@@ -306,6 +306,81 @@ function normalizarTexto(valor) {
   return valor.toLowerCase();
 }
 
+// Busca um produtoId/codigo em estruturas diversas do payload (fallback para eventos sem itens)
+function buscarProdutoIdNoPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const candidatos = [
+    payload?.data?.produto,
+    payload?.data?.product,
+    payload?.produto,
+    payload?.product,
+    payload?.data,
+  ].filter(Boolean);
+
+  const tentarExtrair = (obj) => {
+    if (!obj || typeof obj !== 'object') {
+      return null;
+    }
+    const possiveisIds = [
+      obj.id,
+      obj.produtoId,
+      obj.productId,
+      obj.codigo,
+      obj.sku,
+      obj.codigoProduto,
+    ].filter(Boolean);
+    if (possiveisIds.length > 0) {
+      return possiveisIds[0];
+    }
+    if (Array.isArray(obj.itens) && obj.itens.length > 0) {
+      const item0 = obj.itens[0];
+      return (
+        item0?.produto?.id ||
+        item0?.produtoId ||
+        item0?.idProduto ||
+        item0?.productId ||
+        item0?.codigo ||
+        item0?.sku ||
+        null
+      );
+    }
+    if (obj.item) {
+      return (
+        obj.item?.produto?.id ||
+        obj.item?.produtoId ||
+        obj.item?.idProduto ||
+        obj.item?.productId ||
+        obj.item?.codigo ||
+        obj.item?.sku ||
+        null
+      );
+    }
+    return null;
+  };
+
+  for (const candidato of candidatos) {
+    const valor = tentarExtrair(candidato);
+    if (valor) {
+      return valor;
+    }
+  }
+
+  // Busca rasa em todas as chaves de data
+  if (payload.data && typeof payload.data === 'object') {
+    for (const value of Object.values(payload.data)) {
+      const valor = tentarExtrair(value);
+      if (valor) {
+        return valor;
+      }
+    }
+  }
+
+  return null;
+}
+
 export function identificarTipoEvento(payload) {
   const eventNome = normalizarTexto(
     payload.event ||
@@ -477,6 +552,28 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
   console.log(`[Webhook-Venda] 📦 Tipo de evento identificado: ${tipoEvento}`);
 
   if (tipoEvento === 'venda') {
+    const nomeEvento = normalizarTexto(
+      payload.event ||
+      payload.tipo ||
+      payload.type ||
+      payload.data?.event ||
+      payload.data?.tipo
+    );
+    const ehCancelamento =
+      nomeEvento.includes('cancel') ||
+      nomeEvento.includes('delete') ||
+      nomeEvento.includes('remocao') ||
+      nomeEvento.includes('remover') ||
+      nomeEvento.includes('excluir') ||
+      nomeEvento.includes('canceled') ||
+      nomeEvento.includes('removed');
+
+    // Não processar order.deleted (não há itens e o pedido já foi removido)
+    if (ehCancelamento) {
+      console.warn('[Webhook-Venda] ⚠️ Evento de cancelamento/remoção detectado. Nenhum item disponível. Ignorando para evitar carga desnecessária.');
+      return [];
+    }
+
     // Extrair informações do pedido
     const infoPedido = extrairInfoPedido(payload);
     const pedidoId = infoPedido.pedidoId || `pedido-${Date.now()}`;
@@ -517,6 +614,52 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
     
     if (produtos.length === 0) {
       console.warn(`[Webhook-Venda] ⚠️ Nenhum produto extraído do pedido ${pedidoId}. Verifique se o webhook inclui os itens ou se a API do Bling está acessível.`);
+      // Fallback: se o webhook trouxer produto/quantidade diretamente, ainda assim gerar evento para recalcular compartilhado
+      const produtoDireto =
+        payload?.data?.produto?.id ||
+        payload?.data?.produtoId ||
+        payload?.produtoId ||
+        payload?.idProduto ||
+        buscarProdutoIdNoPayload(payload) ||
+        null;
+      const quantidadeDireta =
+        payload?.data?.quantidade ||
+        payload?.quantidade ||
+        payload?.data?.qtd ||
+        null;
+      const depositoDireto =
+        payload?.data?.deposito?.id ||
+        payload?.data?.depositoId ||
+        payload?.depositoId ||
+        null;
+
+      if (produtoDireto) {
+        console.log(
+          `[Webhook-Venda] 🔄 Fallback: gerando evento único com produto direto do payload para recalcular compartilhado (produto ${produtoDireto}, quantidade ${quantidadeDireta ?? 'N/A'})`
+        );
+        const eventoId = `${pedidoId}-produto-${produtoDireto}`;
+        eventos.push({
+          produtoId: String(produtoDireto),
+          eventoId,
+          depositoId: depositoDireto ? String(depositoDireto) : null,
+          tenantId,
+          blingAccountId: blingAccountIdFinal,
+          tipo: ehCancelamento ? 'venda_removida' : 'venda',
+          origem: 'webhook',
+          dados: {
+            pedidoId,
+            numeroPedido: infoPedido.numero,
+            quantidade: Number(quantidadeDireta) || null,
+            dataPedido: infoPedido.data,
+            situacao: infoPedido.situacao,
+            sku: null,
+            item: null,
+            tipoOperacaoEstoque: ehCancelamento ? 'entrada' : 'saida',
+            evento: payload.event,
+          },
+          recebidoEm: new Date().toISOString(),
+        });
+      }
     }
 
     // Criar um evento para cada produto
@@ -529,7 +672,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
         depositoId: produto.depositoId,
         tenantId: tenantId,
         blingAccountId: blingAccountIdFinal,
-        tipo: 'venda',
+        tipo: ehCancelamento ? 'venda_removida' : 'venda',
         origem: 'webhook',
         dados: {
           pedidoId: pedidoId,
@@ -539,6 +682,8 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
           situacao: infoPedido.situacao,
           sku: produto.sku || produto.produtoId,
           item: produto.item,
+          tipoOperacaoEstoque: ehCancelamento ? 'entrada' : 'saida',
+          evento: payload.event,
         },
         recebidoEm: new Date().toISOString(),
       });

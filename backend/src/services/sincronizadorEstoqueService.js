@@ -112,13 +112,27 @@ class SincronizadorEstoqueService {
     }
 
     const deltaQuantidade = Number(options?.deltaQuantidade);
-    const aplicarDeltaVenda =
-      options?.origemEvento === 'venda' && Number.isFinite(deltaQuantidade) && deltaQuantidade > 0;
+    const operacaoEstoque =
+      options?.eventoDados?.tipoOperacaoEstoque ||
+      (options?.origemEvento === 'venda' ? 'saida' : options?.origemEvento === 'venda_removida' ? 'entrada' : null);
+    const aplicarDeltaSaida =
+      operacaoEstoque === 'saida' &&
+      Number.isFinite(deltaQuantidade) &&
+      deltaQuantidade > 0 &&
+      !usandoFormulaFornecedorVirtual;
+    const aplicarDeltaEntrada =
+      operacaoEstoque === 'entrada' &&
+      Number.isFinite(deltaQuantidade) &&
+      deltaQuantidade > 0 &&
+      !usandoFormulaFornecedorVirtual;
+
     const quantidadeBase = usandoFormulaFornecedorVirtual ? somaFornecedorVirtual : soma;
-    const quantidadeParaCompartilhado =
-      aplicarDeltaVenda && !usandoFormulaFornecedorVirtual
-        ? Math.max(0, quantidadeBase - deltaQuantidade)
-        : quantidadeBase;
+    const quantidadeParaCompartilhado = Math.max(
+      0,
+      quantidadeBase -
+        (aplicarDeltaSaida ? deltaQuantidade : 0) +
+        (aplicarDeltaEntrada ? deltaQuantidade : 0)
+    );
 
     const compartilhadosAtualizados = await this._atualizarDepositosCompartilhados(
       skuResolvido,
@@ -129,12 +143,16 @@ class SincronizadorEstoqueService {
       contasAtivas,
       produtoDetalhes,
       {
-        deltaAplicado: aplicarDeltaVenda && !usandoFormulaFornecedorVirtual ? deltaQuantidade : null,
+        deltaAplicado:
+          (aplicarDeltaSaida || aplicarDeltaEntrada) && !usandoFormulaFornecedorVirtual
+            ? deltaQuantidade
+            : null,
         somaOriginal: soma,
-        aplicarDelta: aplicarDeltaVenda && !usandoFormulaFornecedorVirtual,
+        aplicarDelta: (aplicarDeltaSaida || aplicarDeltaEntrada) && !usandoFormulaFornecedorVirtual,
         calcFornecedorVirtual: usandoFormulaFornecedorVirtual
           ? { fornecedor: valorFornecedor, virtual: valorVirtual }
           : null,
+        operacaoEstoque,
       }
     );
     const errosCompartilhados = compartilhadosAtualizados
