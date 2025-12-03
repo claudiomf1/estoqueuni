@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+# package-lock.json NÃO deve ser ignorado (necessário para npm ci)
+
+# Build outputs
+dist
+build
+*.log
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Documentation
+*.md
+docs/
+DOCUMENTACAO_*.md
+COMO_*.md
+BLING_*.md
+
+# Scripts (não necessários no container)
+scripts/
+ecosystem.config.cjs
+
+# Test files
+**/*.test.js
+**/*.spec.js
+test/
+tests/
+__tests__/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+

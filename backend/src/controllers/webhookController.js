@@ -3,7 +3,7 @@ import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
 import Tenant from '../models/Tenant.js';
 import { processarWebhookVenda } from '../utils/processarWebhookVenda.js';
 
-/**
+/** 
  * Controller para receber webhooks do Bling
  */
 class WebhookController {
@@ -65,10 +65,30 @@ class WebhookController {
       const payloadRaw = req.body || {};
       const payloadPreview = JSON.stringify(payloadRaw).slice(0, 4000); // limitar para log
 
+      // Extrair informações do pedido para log (se for evento de pedido)
+      const evento = req.body?.event || req.body?.tipo || req.body?.type || null;
+      const dadosPedido = req.body?.data || {};
+      const infoPedidoLog = evento === 'order.created' || evento?.includes('order') || evento?.includes('pedido') 
+        ? {
+            pedidoId: dadosPedido.id,
+            numero: dadosPedido.numero,
+            numeroLoja: dadosPedido.numeroLoja,
+            total: dadosPedido.total,
+            data: dadosPedido.data,
+          }
+        : null;
+
       // Log do recebimento
       console.log('[Webhook] 📥 Webhook recebido do Bling:', {
         timestampUTC: timestampUTC.toISOString(),
         timestampBrasil,
+        evento: evento,
+        ...(infoPedidoLog && { 
+          pedido: {
+            ...infoPedidoLog,
+            pesquisaBling: `Número: ${infoPedidoLog.numero} | ID: ${infoPedidoLog.pedidoId} | Loja: ${infoPedidoLog.numeroLoja || 'N/A'}`,
+          }
+        }),
         headers: {
           'user-agent': req.headers['user-agent'],
           'content-type': req.headers['content-type'],
@@ -110,7 +130,8 @@ class WebhookController {
       }
 
       // Processar webhook (suporta vendas e eventos de estoque)
-      const eventos = processarWebhookVenda(req.body, tenantId, blingAccountId);
+      // Agora é async pois pode buscar detalhes do pedido via API
+      const eventos = await processarWebhookVenda(req.body, tenantId, blingAccountId);
 
       if (!eventos || eventos.length === 0) {
         console.warn('[Webhook] ⚠️ Nenhum evento extraído do webhook');

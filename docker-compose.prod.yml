@@ -1,0 +1,56 @@
+# docker-compose.prod.yml
+# Override para ambiente de produção
+# Use com: docker compose -f docker-compose.base.yml -f docker-compose.prod.yml up -d
+
+services:
+  # Backend Principal - Prod
+  estoqueuni-backend:
+    environment:
+      - NODE_ENV=production
+      - CORS_ORIGIN=${CORS_ORIGIN_PROD:-https://estoqueuni.com.br}
+      # Em produção, usar banco remoto por padrão
+      - ESTOQUEUNI_DB_TIPO=${ESTOQUEUNI_DB_TIPO:-1}
+      # Redis (para BullMQ) - usar nome do container
+      - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-0}
+    restart: always
+    # Sem volumes em prod (usa apenas imagem buildada)
+    # Sem portas expostas (acesso apenas via nginx-proxy)
+
+  # Backend AI - Prod
+  estoqueuni-backend-ai:
+    environment:
+      - NODE_ENV=production
+      - CORS_ORIGIN=${CORS_ORIGIN_PROD:-https://estoqueuni.com.br}
+      # Em produção, usar banco remoto por padrão
+      - ESTOQUEUNI_DB_TIPO=${ESTOQUEUNI_DB_TIPO:-1}
+      # Em produção, tentar usar serviços reais (Redis, Qdrant) se disponíveis
+      # Se não disponíveis, usa mocks (configurar via .env se necessário)
+      - ESTOQUEUNI_SKIP_EXTERNALS=${ESTOQUEUNI_SKIP_EXTERNALS:-false}
+    restart: always
+    # Sem volumes em prod
+    # Sem portas expostas
+
+  # Frontend - Prod
+  estoqueuni-frontend:
+    restart: always
+    # Sem volumes em prod
+    # Sem portas expostas
+
+  # Nginx Proxy - Prod
+  nginx-proxy:
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+
+  # Redis - Prod
+  redis:
+    restart: always
+    # Persistência já configurada no base
+

@@ -9,9 +9,26 @@ async function startServer() {
     // Conectar ao MongoDB 
     await connectDatabase();
 
-    // Iniciar servidor
+    // Iniciar servidor com tratamento de erro para porta ocupada
     const server = app.listen(config.port, () => {
       console.log(`🚀 Servidor rodando na porta ${config.port} em modo ${config.env}`);
+    });
+
+    // Tratar erro de porta ocupada ANTES do servidor iniciar completamente
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Porta ${config.port} já está em uso.`);
+        console.error(`   Isso pode causar loop de restart no PM2.`);
+        console.error(`   Aguardando 5 segundos antes de encerrar para evitar loop...`);
+        // Aguardar um pouco antes de encerrar para evitar loop de restart rápido
+        setTimeout(() => {
+          console.error(`   Encerrando processo para evitar loop de restart.`);
+          process.exit(1);
+        }, 5000);
+      } else {
+        console.error('❌ Erro ao iniciar servidor:', error);
+        process.exit(1);
+      }
     });
 
     // Iniciar worker de eventos (BullMQ)

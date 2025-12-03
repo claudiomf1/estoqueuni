@@ -28,7 +28,7 @@ async function inicializarQueue() {
     const RedisModule = await import('ioredis');
     const Redis = RedisModule.default;
     
-    const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+    const REDIS_HOST = process.env.REDIS_HOST || 'redis';
     const REDIS_PORT = process.env.REDIS_PORT || 6379;
     const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
     const REDIS_DB = process.env.REDIS_DB || 0;
@@ -149,23 +149,19 @@ async function adicionarEventoFallback(jobName, data) {
   setImmediate(async () => {
     try {
       // Importar dinamicamente o processador de eventos
-      // Isso será implementado pelo AGENTE 3
-      try {
-        const processarEventoModule = await import('../jobs/processarEvento.js');
-        const { processarEvento } = processarEventoModule;
-        if (processarEvento) {
-          await processarEvento({ data, name: jobName });
-        } else {
-          console.warn('[Queue] ⚠️ processarEvento não encontrado - evento será processado quando o worker estiver disponível');
-        }
-      } catch (importError) {
-        // Se o arquivo não existir ainda, apenas loga
-        if (importError.code === 'ERR_MODULE_NOT_FOUND') {
-          console.warn('[Queue] ⚠️ Worker de processamento ainda não implementado (AGENTE 3)');
-          console.warn('[Queue] ⚠️ Evento será processado quando o worker estiver disponível');
-        } else {
-          throw importError;
-        }
+      const eventProcessorService = await import('./eventProcessorService.js');
+      const { default: processor } = eventProcessorService;
+      
+      if (processor && data.evento) {
+        console.log('[Queue] 🔄 Processando evento via fallback:', {
+          produtoId: data.evento.produtoId,
+          eventoId: data.evento.eventoId,
+          tenantId: data.tenantId || data.evento.tenantId,
+        });
+        
+        await processor.processarEvento(data.evento, data.tenantId || data.evento.tenantId);
+      } else {
+        console.warn('[Queue] ⚠️ Dados do evento inválidos no fallback:', { jobName, data });
       }
     } catch (error) {
       console.error('[Queue] ❌ Erro ao processar evento (fallback):', error);

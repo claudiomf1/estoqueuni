@@ -597,11 +597,44 @@ class BlingService {
           return 0;
         }
 
-        return (
-          Number(registro.saldoVirtualTotal) ||
-          Number(registro.saldoFisicoTotal) ||
-          0
-        );
+        // IMPORTANTE: Para atualizar o deposito_teste corretamente, precisamos considerar o reservado
+        // - saldoFisicoTotal = estoque físico total (JÁ INCLUI o reservado)
+        // - saldoVirtualTotal = estoque disponível (físico - reservado)
+        // - reservado = quantidade reservada em pedidos
+        
+        // Extrair valores disponíveis
+        const saldoReservado = Number(registro.saldoReservado || registro.reservado || 0);
+        const saldoFisico = Number(registro.saldoFisicoTotal || 0);
+        const saldoVirtual = Number(registro.saldoVirtualTotal || 0);
+        
+        // Log detalhado para debug (primeira vez ou quando houver reservado)
+        if (saldoReservado > 0 || process.env.NODE_ENV === 'development') {
+          console.log(`[BLING-SERVICE] 📊 Saldo do produto ${produtoId} no depósito ${depositoId}:`, {
+            saldoFisicoTotal: saldoFisico,
+            saldoVirtualTotal: saldoVirtual,
+            saldoReservado: saldoReservado,
+            camposDisponiveis: Object.keys(registro),
+          });
+        }
+        
+        // Estratégia: usar saldoFisicoTotal quando disponível (já inclui reservado)
+        // Se não tiver saldoFisicoTotal, calcular: saldoVirtualTotal + reservado
+        let saldoFinal = 0;
+        
+        if (saldoFisico > 0) {
+          // saldoFisicoTotal já inclui o reservado, então usamos ele diretamente
+          saldoFinal = saldoFisico;
+        } else if (saldoVirtual > 0) {
+          // Se só temos saldoVirtualTotal, precisamos somar o reservado se disponível
+          if (saldoReservado > 0) {
+            saldoFinal = saldoVirtual + saldoReservado;
+          } else {
+            // Se não temos reservado, usar apenas o virtual (pode ser que não tenha reservado)
+            saldoFinal = saldoVirtual;
+          }
+        }
+
+        return saldoFinal;
       } catch (error) {
         if (error.response?.status === 429 && tentativa < 3) {
           const retryAfter =
@@ -1167,6 +1200,91 @@ class BlingService {
   }
 
   /**
+   * Busca detalhes completos de um pedido de venda no Bling
+   * @param {string|number} pedidoId - ID do pedido no Bling
+   * @param {string} tenantId - ID do tenant
+   * @param {string} blingAccountId - ID da conta Bling
+   * @returns {Promise<Object|null>} Pedido completo com itens ou null se não encontrado
+   */
+  async getPedidoVenda(pedidoId, tenantId, blingAccountId) {
+    if (!pedidoId) {
+      throw new Error('pedidoId é obrigatório');
+    }
+    if (!tenantId) {
+      throw new Error('tenantId é obrigatório');
+    }
+    if (!blingAccountId) {
+      throw new Error('blingAccountId é obrigatório');
+    }
+
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+    try {
+      await this._waitForRateLimit();
+      const response = await axios.get(
+        `${this.apiUrl}/pedidos/vendas/${pedidoId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data?.data || null;
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao buscar pedido - Requer re-autorização',
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        err.status = status;
+        throw err;
+      }
+
+      if (status === 404) {
+        console.warn(
+          `[BLING-SERVICE] ⚠️ Pedido ${pedidoId} não encontrado na conta ${blingAccountId}`
+        );
+        return null;
+      }
+
+      console.error(
+        `[BLING-SERVICE] ❌ Erro ao buscar pedido ${pedidoId}:`,
+        JSON.stringify(
+          {
+            status,
+            statusText: error.response?.statusText,
+            data,
+            reason,
+            url: `${this.apiUrl}/pedidos/vendas/${pedidoId}`,
+          },
+          null,
+          2
+        )
+      );
+
+      throw new Error(`Falha ao buscar pedido no Bling: ${reason}`);
+    }
+  }
+
+  /**
    * Deleta um depósito no Bling
    * NOTA: A API do Bling não permite deletar depósitos. 
    * Este método tenta inativar o depósito e depois remove da configuração local.
@@ -1183,7 +1301,7 @@ class BlingService {
       mensagem: '',
       erro: null
     };
-
+ 
     if (!blingAccountId) {
       // Se não tiver blingAccountId, apenas retorna resultado indicando que não pode inativar
       resultado.erro = 'blingAccountId não fornecido - não é possível inativar no Bling';
