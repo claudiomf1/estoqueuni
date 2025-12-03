@@ -12,10 +12,12 @@ import BlingConfig from '../models/BlingConfig.js';
  * @param {Object} payload - Payload do webhook do Bling
  * @param {string} tenantId - ID do tenant (opcional, necessário para buscar detalhes via API)
  * @param {string} blingAccountId - ID da conta Bling (opcional, necessário para buscar detalhes via API)
- * @returns {Promise<Array>} Array de produtos com { produtoId, quantidade, depositoId }
+ * @returns {Promise<{ produtos: Array, blingAccountIdUsado: string|null }>} Produtos com { produtoId, quantidade, depositoId } e conta usada para buscar itens
  */
 export async function extrairProdutosDoPedido(payload, tenantId = null, blingAccountId = null) {
   const produtos = [];
+  let blingAccountIdUsado =
+    blingAccountId || payload?.companyId || payload?.data?.companyId || null;
 
   // Formato 1: payload.pedido ou payload.data.pedido
   // Formato novo: payload.data (quando event é "order.created")
@@ -27,9 +29,59 @@ export async function extrairProdutosDoPedido(payload, tenantId = null, blingAcc
   // Formato 2: payload.itens ou pedido.itens
   let itens = pedido?.itens || payload.itens || payload.data?.itens || [];
 
+  const registrarItensDoPedido = (pedidoCompleto, pedidoIdLog, contaLog = {}) => {
+    console.log(`[Webhook-Venda] 📦 Estrutura do pedido retornado pela API:`, {
+      temPedido: !!pedidoCompleto,
+      contaBlingId: contaLog.blingAccountId,
+      contaNome: contaLog.accountName,
+      keys: pedidoCompleto ? Object.keys(pedidoCompleto) : [],
+      temItens: !!pedidoCompleto?.itens,
+      tipoItens: pedidoCompleto?.itens
+        ? (Array.isArray(pedidoCompleto.itens) ? 'array' : typeof pedidoCompleto.itens)
+        : 'undefined',
+      quantidadeItens: Array.isArray(pedidoCompleto?.itens) ? pedidoCompleto.itens.length : 'N/A',
+      primeiroItem: Array.isArray(pedidoCompleto?.itens) && pedidoCompleto.itens.length > 0 
+        ? JSON.stringify(pedidoCompleto.itens[0]).slice(0, 500) 
+        : 'N/A',
+    });
+
+    if (pedidoCompleto) {
+      // Formato 1: pedidoCompleto.itens (array direto)
+      if (pedidoCompleto.itens && Array.isArray(pedidoCompleto.itens) && pedidoCompleto.itens.length > 0) {
+        itens = pedidoCompleto.itens;
+        console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.itens`);
+        return true;
+      }
+      // Formato 2: pedidoCompleto.data.itens
+      if (pedidoCompleto.data?.itens && Array.isArray(pedidoCompleto.data.itens) && pedidoCompleto.data.itens.length > 0) {
+        itens = pedidoCompleto.data.itens;
+        console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.data.itens`);
+        return true;
+      }
+      // Formato 3: pedidoCompleto.items (em inglês)
+      if (pedidoCompleto.items && Array.isArray(pedidoCompleto.items) && pedidoCompleto.items.length > 0) {
+        itens = pedidoCompleto.items;
+        console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.items`);
+        return true;
+      }
+      // Formato 4: pedidoCompleto.produtos
+      if (pedidoCompleto.produtos && Array.isArray(pedidoCompleto.produtos) && pedidoCompleto.produtos.length > 0) {
+        itens = pedidoCompleto.produtos;
+        console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.produtos`);
+        return true;
+      }
+
+      console.warn(`[Webhook-Venda] ⚠️ Pedido ${pedidoIdLog} encontrado mas sem itens em formato conhecido`, {
+        temPedidoCompleto: !!pedidoCompleto,
+        contaBlingId: contaLog.blingAccountId,
+        estruturaCompleta: JSON.stringify(pedidoCompleto).slice(0, 2000),
+      });
+    }
+    return false;
+  };
+
   // Se não encontrou itens e temos informações suficientes, buscar detalhes completos do pedido via API
   if ((!Array.isArray(itens) || itens.length === 0) && tenantId) {
-    // Tentar extrair pedidoId de várias formas possíveis
     const pedidoId = pedido?.id || 
                      pedido?.pedidoId || 
                      payload.data?.id || 
@@ -38,144 +90,141 @@ export async function extrairProdutosDoPedido(payload, tenantId = null, blingAcc
                      payload.pedido?.id ||
                      payload.id ||
                      payload.pedidoId;
-    
+    const companyId = payload.companyId || payload.data?.companyId;
+
     if (pedidoId) {
-      // Sempre tentar buscar a conta correta usando o companyId do webhook
-      // O companyId pode não corresponder ao blingAccountId armazenado
-      let blingAccountIdFinal = blingAccountId;
-      const companyId = payload.companyId || payload.data?.companyId;
-      
-      if (tenantId && companyId) {
-        // Verificar se a conta fornecida existe e está autorizada
-        let contaValida = null;
-        if (blingAccountIdFinal) {
-          try {
-            contaValida = await BlingConfig.findOne({ 
-              tenantId, 
-              blingAccountId: blingAccountIdFinal,
-              is_active: true 
-            });
-          } catch (error) {
-            console.warn(`[Webhook-Venda] ⚠️ Erro ao verificar conta ${blingAccountIdFinal}:`, error.message);
-          }
+      const contasAtivas = await BlingConfig.find({
+        tenantId,
+        is_active: true,
+        access_token: { $exists: true, $ne: null },
+      })
+        .select('blingAccountId accountName store_id store_name')
+        .lean();
+
+      const candidatos = [];
+      const candidatosSet = new Set();
+
+      const adicionarCandidato = (conta, motivo) => {
+        if (!conta?.blingAccountId) {
+          return;
         }
-        
-        // Se a conta fornecida não existe ou não está autorizada, buscar pelo companyId
-        if (!contaValida) {
-          console.log(`[Webhook-Venda] 🔍 Buscando conta Bling pelo companyId ${companyId}...`);
-          try {
-            // Tentar buscar pelo blingAccountId (que pode ser o companyId)
-            let conta = await BlingConfig.findOne({ 
-              tenantId, 
-              blingAccountId: companyId,
-              is_active: true 
-            });
-            
-            // Se não encontrou, buscar todas as contas do tenant e verificar se alguma corresponde
-            if (!conta) {
-              const contas = await BlingConfig.find({ 
-                tenantId, 
-                is_active: true 
-              });
-              
-              // Tentar encontrar por store_id ou blingAccountId
-              conta = contas.find(c => 
-                c.blingAccountId === companyId || 
-                c.store_id === companyId ||
-                String(c.blingAccountId) === String(companyId)
-              );
-            }
-            
-            if (conta) {
-              blingAccountIdFinal = conta.blingAccountId;
-              console.log(`[Webhook-Venda] ✅ Conta Bling encontrada: ${blingAccountIdFinal} (${conta.accountName || conta.store_name || 'N/A'})`);
-            } else {
-              console.warn(`[Webhook-Venda] ⚠️ Conta Bling não encontrada para companyId ${companyId} no tenant ${tenantId}`);
-              // Listar contas disponíveis para debug
-              const contasDisponiveis = await BlingConfig.find({ tenantId, is_active: true }).select('blingAccountId accountName store_id').lean();
-              console.log(`[Webhook-Venda] 📋 Contas disponíveis no tenant:`, contasDisponiveis.map(c => ({
-                blingAccountId: c.blingAccountId,
-                accountName: c.accountName,
-                store_id: c.store_id
-              })));
-            }
-          } catch (error) {
-            console.error(`[Webhook-Venda] ❌ Erro ao buscar conta Bling:`, error.message);
-          }
+        const id = String(conta.blingAccountId);
+        if (candidatosSet.has(id)) {
+          return;
+        }
+        candidatosSet.add(id);
+        candidatos.push({ ...conta, blingAccountId: id, motivo });
+      };
+
+      let blingAccountIdFinal = blingAccountId;
+
+      if (blingAccountIdFinal) {
+        const contaPayload = contasAtivas.find(
+          (c) => String(c.blingAccountId) === String(blingAccountIdFinal)
+        );
+        if (contaPayload) {
+          adicionarCandidato(contaPayload, 'blingAccountId-payload');
         } else {
-          console.log(`[Webhook-Venda] ✅ Conta Bling válida: ${blingAccountIdFinal} (${contaValida.accountName || contaValida.store_name || 'N/A'})`);
+          console.warn(
+            `[Webhook-Venda] ⚠️ Conta ${blingAccountIdFinal} informada no webhook não está ativa para o tenant ${tenantId}`
+          );
         }
       }
-      
-      if (blingAccountIdFinal) {
-        console.log(`[Webhook-Venda] 🔍 Itens não encontrados no webhook. Buscando detalhes completos do pedido ${pedidoId} via API...`);
+
+      if (companyId) {
+        const contaPorCompany = contasAtivas.find(
+          (c) =>
+            String(c.blingAccountId) === String(companyId) ||
+            String(c.store_id) === String(companyId)
+        );
+        if (contaPorCompany) {
+          blingAccountIdFinal = contaPorCompany.blingAccountId;
+          adicionarCandidato(contaPorCompany, 'companyId');
+          console.log(
+            `[Webhook-Venda] ✅ Conta Bling identificada pelo companyId ${companyId}: ${contaPorCompany.blingAccountId} (${contaPorCompany.accountName || contaPorCompany.store_name || 'N/A'})`
+          );
+        } else {
+          console.warn(
+            `[Webhook-Venda] ⚠️ Conta Bling não encontrada para companyId ${companyId} no tenant ${tenantId}`
+          );
+          if (Array.isArray(contasAtivas) && contasAtivas.length > 0) {
+            console.log(
+              `[Webhook-Venda] 📋 Contas disponíveis no tenant:`,
+              contasAtivas.map((c) => ({
+                blingAccountId: c.blingAccountId,
+                accountName: c.accountName,
+                store_id: c.store_id,
+              }))
+            );
+          }
+        }
+      }
+
+      if (candidatos.length === 0 && contasAtivas.length > 0) {
+        contasAtivas.forEach((conta) => adicionarCandidato(conta, 'fallback-conta-ativa'));
+      }
+
+      const contasTestadas = [];
+
+      const tentarBuscarPedido = async (conta, motivo) => {
+        contasTestadas.push({ ...conta, motivo });
+        console.log(
+          `[Webhook-Venda] 🔍 Itens não encontrados no webhook. Buscando detalhes completos do pedido ${pedidoId} via API (conta ${conta.blingAccountId}, motivo: ${motivo})...`
+        );
         console.log(`[Webhook-Venda] 📋 Dados para busca:`, {
           pedidoId: String(pedidoId),
           tenantId: tenantId,
-          blingAccountId: blingAccountIdFinal,
+          blingAccountId: conta.blingAccountId,
           pedidoKeys: pedido ? Object.keys(pedido) : [],
           payloadKeys: Object.keys(payload),
         });
-        
+
         try {
-          const pedidoCompleto = await blingService.getPedidoVenda(String(pedidoId), tenantId, blingAccountIdFinal);
-          
-          // Log detalhado da estrutura do pedido retornado
-          console.log(`[Webhook-Venda] 📦 Estrutura do pedido retornado pela API:`, {
-            temPedido: !!pedidoCompleto,
-            keys: pedidoCompleto ? Object.keys(pedidoCompleto) : [],
-            temItens: !!pedidoCompleto?.itens,
-            tipoItens: pedidoCompleto?.itens ? (Array.isArray(pedidoCompleto.itens) ? 'array' : typeof pedidoCompleto.itens) : 'undefined',
-            quantidadeItens: Array.isArray(pedidoCompleto?.itens) ? pedidoCompleto.itens.length : 'N/A',
-            primeiroItem: Array.isArray(pedidoCompleto?.itens) && pedidoCompleto.itens.length > 0 
-              ? JSON.stringify(pedidoCompleto.itens[0]).slice(0, 500) 
-              : 'N/A',
-          });
-          
-          // Tentar diferentes formatos de itens
-          if (pedidoCompleto) {
-            // Formato 1: pedidoCompleto.itens (array direto)
-            if (pedidoCompleto.itens && Array.isArray(pedidoCompleto.itens) && pedidoCompleto.itens.length > 0) {
-              itens = pedidoCompleto.itens;
-              console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.itens`);
-            }
-            // Formato 2: pedidoCompleto.data.itens
-            else if (pedidoCompleto.data?.itens && Array.isArray(pedidoCompleto.data.itens) && pedidoCompleto.data.itens.length > 0) {
-              itens = pedidoCompleto.data.itens;
-              console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.data.itens`);
-            }
-            // Formato 3: pedidoCompleto.items (em inglês)
-            else if (pedidoCompleto.items && Array.isArray(pedidoCompleto.items) && pedidoCompleto.items.length > 0) {
-              itens = pedidoCompleto.items;
-              console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.items`);
-            }
-            // Formato 4: pedidoCompleto.produtos
-            else if (pedidoCompleto.produtos && Array.isArray(pedidoCompleto.produtos) && pedidoCompleto.produtos.length > 0) {
-              itens = pedidoCompleto.produtos;
-              console.log(`[Webhook-Venda] ✅ ${itens.length} item(ns) encontrado(s) em pedidoCompleto.produtos`);
-            }
-            else {
-              console.warn(`[Webhook-Venda] ⚠️ Pedido ${pedidoId} encontrado mas sem itens em formato conhecido`, {
-                temPedidoCompleto: !!pedidoCompleto,
-                estruturaCompleta: JSON.stringify(pedidoCompleto).slice(0, 2000),
-              });
-            }
+          const pedidoCompleto = await blingService.getPedidoVenda(
+            String(pedidoId),
+            tenantId,
+            conta.blingAccountId
+          );
+          const temItens = registrarItensDoPedido(pedidoCompleto, pedidoId, conta);
+          if (temItens) {
+            blingAccountIdUsado = conta.blingAccountId;
+            return true;
           }
         } catch (error) {
           console.error(`[Webhook-Venda] ❌ Erro ao buscar detalhes do pedido ${pedidoId}:`, {
             message: error.message,
-            stack: error.stack,
             tenantId: tenantId,
-            blingAccountId: blingAccountIdFinal,
+            blingAccountId: conta.blingAccountId,
+            motivo,
           });
-          // Continua mesmo com erro, pode ser que os itens estejam em outro formato
         }
-      } else {
-        console.warn(`[Webhook-Venda] ⚠️ Não foi possível identificar o blingAccountId para buscar pedido via API`, {
-          temBlingAccountId: !!blingAccountId,
-          companyId: payload.companyId,
-          tenantId: tenantId,
-        });
+        return false;
+      };
+
+      for (const candidato of candidatos) {
+        const sucesso = await tentarBuscarPedido(candidato, candidato.motivo);
+        if (sucesso) {
+          break;
+        }
+      }
+
+      if ((!Array.isArray(itens) || itens.length === 0) && candidatos.length === 0) {
+        console.warn(
+          `[Webhook-Venda] ⚠️ Não foi possível buscar itens do pedido ${pedidoId} porque nenhuma conta Bling ativa com token foi encontrada para o tenant ${tenantId}`
+        );
+      } else if (!Array.isArray(itens) || itens.length === 0) {
+        console.warn(
+          `[Webhook-Venda] ⚠️ Pedido ${pedidoId} não retornou itens nas contas testadas`,
+          {
+            contasTestadas: contasTestadas.map((c) => ({
+              blingAccountId: c.blingAccountId,
+              motivo: c.motivo,
+              accountName: c.accountName,
+              store_id: c.store_id,
+            })),
+            companyId,
+          }
+        );
       }
     } else {
       console.warn(`[Webhook-Venda] ⚠️ Não foi possível identificar o pedidoId para buscar via API`, {
@@ -195,50 +244,54 @@ export async function extrairProdutosDoPedido(payload, tenantId = null, blingAcc
       temPayloadData: !!payload.data,
       event: payload.event,
     });
-    return produtos;
+    return { produtos, blingAccountIdUsado };
   }
 
-    // Extrair produtos dos itens
-    for (const item of itens) {
-      // O produto pode vir como objeto com id ou como string
-      const produtoId = item.produto?.id || 
-                        item.idProduto || 
-                        item.produtoId || 
-                        item.productId ||
-                        item.id;
+  // Extrair produtos dos itens
+  for (const item of itens) {
+    // Preferir código/SKU; se não existir, usa IDs
+    const produtoId = item.codigo ||
+                      item.codigoProduto ||
+                      item.produto?.codigo ||
+                      item.produto?.id || 
+                      item.idProduto || 
+                      item.produtoId || 
+                      item.productId ||
+                      item.id;
 
-      if (!produtoId) {
-        console.warn('[Webhook-Venda] ⚠️ Item sem produtoId:', JSON.stringify(item, null, 2));
-        continue;
-      }
-
-      const quantidade = item.quantidade || 
-                        item.qtd || 
-                        item.quantity || 
-                        0;
-
-      const depositoId = item.deposito?.id || 
-                         item.depositoId || 
-                         item.idDeposito ||
-                         pedido?.deposito?.id ||
-                         pedido?.depositoId ||
-                         null;
-
-      console.log(`[Webhook-Venda] 📦 Produto extraído:`, {
-        produtoId: String(produtoId),
-        quantidade: Number(quantidade),
-        depositoId: depositoId ? String(depositoId) : 'não informado',
-      });
-
-      produtos.push({
-        produtoId: String(produtoId),
-        quantidade: Number(quantidade),
-        depositoId: depositoId ? String(depositoId) : null,
-        item: item, // Manter referência ao item original para debug
-      });
+    if (!produtoId) {
+      console.warn('[Webhook-Venda] ⚠️ Item sem produtoId:', JSON.stringify(item, null, 2));
+      continue;
     }
 
-  return produtos;
+    const quantidade = item.quantidade || 
+                      item.qtd || 
+                      item.quantity || 
+                      0;
+
+    const depositoId = item.deposito?.id || 
+                       item.depositoId || 
+                       item.idDeposito ||
+                       pedido?.deposito?.id ||
+                       pedido?.depositoId ||
+                       null;
+
+    console.log(`[Webhook-Venda] 📦 Produto extraído:`, {
+      produtoId: String(produtoId),
+      quantidade: Number(quantidade),
+      depositoId: depositoId ? String(depositoId) : 'não informado',
+    });
+
+    produtos.push({
+      produtoId: String(produtoId),
+      quantidade: Number(quantidade),
+      depositoId: depositoId ? String(depositoId) : null,
+      item: item, // Manter referência ao item original para debug
+      sku: item.codigo || item.codigoProduto || null,
+    });
+  }
+
+  return { produtos, blingAccountIdUsado };
 }
 
 /**
@@ -429,7 +482,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
     const pedidoId = infoPedido.pedidoId || `pedido-${Date.now()}`;
     
     // Usar companyId como blingAccountId se não foi fornecido
-    const blingAccountIdFinal = blingAccountId || infoPedido.blingAccountId || payload.companyId;
+    let blingAccountIdFinal = blingAccountId || infoPedido.blingAccountId || payload.companyId;
 
     // Log detalhado do pedido para facilitar identificação no Bling
     console.log(`[Webhook-Venda] 📦 Informações do pedido:`, {
@@ -445,7 +498,20 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
     });
 
     // Extrair produtos do pedido (agora é async e pode buscar via API se necessário)
-    const produtos = await extrairProdutosDoPedido(payload, tenantId, blingAccountIdFinal);
+    const produtosResultado = await extrairProdutosDoPedido(payload, tenantId, blingAccountIdFinal);
+    const produtos = Array.isArray(produtosResultado)
+      ? produtosResultado
+      : produtosResultado?.produtos || [];
+    const contaUsadaParaItens = Array.isArray(produtosResultado)
+      ? null
+      : produtosResultado?.blingAccountIdUsado;
+
+    if (contaUsadaParaItens) {
+      blingAccountIdFinal = contaUsadaParaItens;
+      console.log(
+        `[Webhook-Venda] 🔗 Conta Bling usada para ler itens do pedido: ${contaUsadaParaItens}`
+      );
+    }
 
     console.log(`[Webhook-Venda] 📦 Produtos encontrados no pedido: ${produtos.length}`);
     
@@ -471,6 +537,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
           quantidade: produto.quantidade,
           dataPedido: infoPedido.data,
           situacao: infoPedido.situacao,
+          sku: produto.sku || produto.produtoId,
           item: produto.item,
         },
         recebidoEm: new Date().toISOString(),
@@ -511,8 +578,3 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
 
   return eventos;
 }
-
-
-
-
-

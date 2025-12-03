@@ -94,14 +94,48 @@ class SincronizadorEstoqueService {
       tenantId
     );
     const soma = this.calcularSoma(saldosArray);
+
+    // Novo cálculo: compartilhado = fornecedor + virtual (quando existir nos depósitos principais)
+    const valorFornecedor = saldosArray
+      .filter((s) => /fornecedor/i.test(s.nomeDeposito || s.depositoId || ''))
+      .reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
+    const valorVirtual = saldosArray
+      .filter((s) => /virtual/i.test(s.nomeDeposito || s.depositoId || ''))
+      .reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
+    const somaFornecedorVirtual = valorFornecedor + valorVirtual;
+    const usandoFormulaFornecedorVirtual = somaFornecedorVirtual > 0;
+    if (usandoFormulaFornecedorVirtual) {
+      logWithTimestamp(
+        console.log,
+        `[SINCRONIZADOR] 🧮 Cálculo compartilhado (fornecedor + virtual): fornecedor=${valorFornecedor}, virtual=${valorVirtual}, total=${somaFornecedorVirtual}`
+      );
+    }
+
+    const deltaQuantidade = Number(options?.deltaQuantidade);
+    const aplicarDeltaVenda =
+      options?.origemEvento === 'venda' && Number.isFinite(deltaQuantidade) && deltaQuantidade > 0;
+    const quantidadeBase = usandoFormulaFornecedorVirtual ? somaFornecedorVirtual : soma;
+    const quantidadeParaCompartilhado =
+      aplicarDeltaVenda && !usandoFormulaFornecedorVirtual
+        ? Math.max(0, quantidadeBase - deltaQuantidade)
+        : quantidadeBase;
+
     const compartilhadosAtualizados = await this._atualizarDepositosCompartilhados(
       skuResolvido,
       tenantId,
-      soma,
+      quantidadeParaCompartilhado,
       configObj,
       origem,
       contasAtivas,
-      produtoDetalhes
+      produtoDetalhes,
+      {
+        deltaAplicado: aplicarDeltaVenda && !usandoFormulaFornecedorVirtual ? deltaQuantidade : null,
+        somaOriginal: soma,
+        aplicarDelta: aplicarDeltaVenda && !usandoFormulaFornecedorVirtual,
+        calcFornecedorVirtual: usandoFormulaFornecedorVirtual
+          ? { fornecedor: valorFornecedor, virtual: valorVirtual }
+          : null,
+      }
     );
     const errosCompartilhados = compartilhadosAtualizados
       .filter(item => item && item.sucesso === false && item.erro)
@@ -325,8 +359,16 @@ class SincronizadorEstoqueService {
     config,
     origem,
     contasAtivas = [],
-    produtoDetalhesCache = new Map()
+    produtoDetalhesCache = new Map(),
+    opcoesExtras = {}
   ) {
+    const quantidadeNormalizada = Number.isFinite(Number(quantidade))
+      ? Number(quantidade)
+      : 0;
+    const aplicarDelta = opcoesExtras?.aplicarDelta !== false;
+    const deltaAplicado = Number.isFinite(opcoesExtras?.deltaAplicado)
+      ? Number(opcoesExtras.deltaAplicado)
+      : null;
     const depositosCompartilhados =
       config?.regraSincronizacao?.depositosCompartilhados || [];
     if (!depositosCompartilhados.length) {
@@ -369,6 +411,13 @@ class SincronizadorEstoqueService {
     const mapaDepositos = this._criarMapaDepositos(config);
     const produtoCache = new Map(produtoDetalhesCache);
     const resultados = [];
+
+    if (deltaAplicado !== null && aplicarDelta) {
+      logWithTimestamp(
+        console.log,
+        `[SINCRONIZADOR] ⚙️ Ajuste por venda - quantidade original somada: ${opcoesExtras?.somaOriginal ?? quantidadeNormalizada}, delta aplicado: ${deltaAplicado}, quantidade final para depósitos compartilhados: ${quantidadeNormalizada}`
+      );
+    }
 
     for (const depositoId of depositosCompartilhados) {
       const deposito = mapaDepositos.get(depositoId);
@@ -444,16 +493,41 @@ class SincronizadorEstoqueService {
         }
 
         const contaNome = contaNomeMap.get(deposito.contaBlingId) || deposito.contaBlingId;
+        let quantidadeDestino = quantidadeNormalizada;
+        let saldoAtualDeposito = null;
+
+        if (aplicarDelta && deltaAplicado !== null) {
+          try {
+            saldoAtualDeposito = await blingService.getSaldoProdutoPorDeposito(
+              produtoInfo.id,
+              deposito.id,
+              tenantId,
+              deposito.contaBlingId
+            );
+            quantidadeDestino = Math.max(0, Number(saldoAtualDeposito || 0) - deltaAplicado);
+            logWithTimestamp(
+              console.log,
+              `[SINCRONIZADOR] ⚙️ Ajuste por venda - depósito ${deposito.id}: saldo atual ${saldoAtualDeposito}, delta ${deltaAplicado}, destino ${quantidadeDestino}`
+            );
+          } catch (errorSaldo) {
+            logWithTimestamp(
+              console.warn,
+              `[SINCRONIZADOR] ⚠️ Falha ao ler saldo do depósito ${deposito.id} antes do ajuste: ${errorSaldo.message}. Usando quantidade base ${quantidadeNormalizada}.`
+            );
+            quantidadeDestino = quantidadeNormalizada;
+          }
+        }
+
         logWithTimestamp(
           console.log,
-          `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${contaNome} (${deposito.contaBlingId}) com quantidade ${quantidade} (tenant ${tenantId}, origem ${origem})`
+          `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${contaNome} (${deposito.contaBlingId}) com quantidade ${quantidadeDestino} (tenant ${tenantId}, origem ${origem})`
         );
 
         const retornoApi = await blingService.registrarMovimentacaoEstoque({
           tenantId,
           blingAccountId: deposito.contaBlingId,
           depositoId: deposito.id,
-          quantidade,
+          quantidade: quantidadeDestino,
           tipoOperacao: 'B',
           produtoIdBling: produtoInfo.id,
           sku,

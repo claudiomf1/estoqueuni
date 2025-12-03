@@ -163,3 +163,5 @@ echo -e "${BLUE}📋 Próximos passos:${NC}"
 echo "  1. Verificar logs: ssh ${REMOTE_HOST} 'cd ${APP_PATH} && docker compose -f docker-compose.base.yml -f docker-compose.prod.yml logs -f ${SERVICE_NAME}'"
 echo "  2. Verificar status: ssh ${REMOTE_HOST} 'cd ${APP_PATH} && docker compose -f docker-compose.base.yml -f docker-compose.prod.yml ps ${SERVICE_NAME}'"
 
+
+

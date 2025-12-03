@@ -100,6 +100,27 @@ class EventProcessorService {
         };
       }
 
+      // Ignorar eventos de estoque vindos de depósitos compartilhados (evita loop do próprio ajuste)
+      const depositosCompartilhados = Array.isArray(config?.regraSincronizacao?.depositosCompartilhados)
+        ? config.regraSincronizacao.depositosCompartilhados
+        : [];
+      if (
+        evento.tipo === 'estoque' &&
+        evento.depositoId &&
+        depositosCompartilhados.includes(String(evento.depositoId))
+      ) {
+        console.log(
+          `[EVENT-PROCESSOR] ⚠️ Evento de depósito compartilhado ignorado para evitar loop - Depósito: ${evento.depositoId}, Produto: ${evento.produtoId}`
+        );
+        return {
+          ignorado: true,
+          motivo: 'Depósito compartilhado (loop prevention)',
+          depositoId: evento.depositoId,
+          produtoId: evento.produtoId,
+          tenantId: tenantIdFinal,
+        };
+      }
+
       // 2. Verificar anti-duplicação
       const chaveUnica = EventoProcessado.criarChaveUnica(evento.produtoId, evento.eventoId);
 
@@ -133,6 +154,24 @@ class EventProcessorService {
         return {
           ignorado: true,
           motivo: 'Evento gerado por atualização automática',
+          produtoId: evento.produtoId,
+          depositoId: evento.depositoId,
+          tenantId: tenantIdFinal,
+        };
+      }
+
+      if (
+        autoUpdateTracker.ehEventoGeradoPorAtualizacaoAutomaticaProduto({
+          tenantId: tenantIdFinal,
+          produtoId: evento.produtoId
+        })
+      ) {
+        console.log(
+          `[EVENT-PROCESSOR] ⚠️ Evento gerado por atualização automática (nível produto) - Produto: ${evento.produtoId}, Depósito: ${evento.depositoId || 'N/A'}`
+        );
+        return {
+          ignorado: true,
+          motivo: 'Evento gerado por atualização automática (produto)',
           produtoId: evento.produtoId,
           depositoId: evento.depositoId,
           tenantId: tenantIdFinal,
@@ -174,7 +213,12 @@ class EventProcessorService {
         resultadoSincronizacao = await sincronizadorEstoqueService.sincronizarEstoque(
           evento.produtoId,
           tenantIdFinal,
-          origem
+          origem,
+          {
+            deltaQuantidade: evento?.dados?.quantidade,
+            origemEvento: evento?.tipo,
+            eventoDados: evento?.dados,
+          }
         );
 
         sucesso = resultadoSincronizacao?.success === true;

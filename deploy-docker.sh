@@ -111,3 +111,5 @@ echo -e "  2. Verificar status: ssh ${REMOTE_HOST} 'cd ${APP_PATH} && docker com
 echo -e "  3. Acessar o sistema: http://seu-dominio.com.br"
 echo ""
 
+
+
