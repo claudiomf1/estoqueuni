@@ -5,6 +5,7 @@ import {
   verifyTokenHandler,
   cadastroHandler,
   getTokenHandler,
+  verifyEmailHandler,
 } from '../controllers/authController.js';
 
 const router = express.Router();
@@ -14,6 +15,7 @@ router.post('/login', loginHandler);
 router.post('/cadastro', cadastroHandler);
 router.post('/logout', logoutHandler);
 router.get('/verificarToken', verifyTokenHandler);
+router.get('/verify-email', verifyEmailHandler);
 
 export default router;
 

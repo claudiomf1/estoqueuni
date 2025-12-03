@@ -1,5 +1,6 @@
 import { useState, useContext, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { Modal, Button } from 'react-bootstrap';
 import { AuthContext } from '../context/AuthContext';
 import { PersonFill, LockFill, EyeFill, EyeSlashFill, CheckCircleFill, ShieldFill, LightningChargeFill, BarChartFill } from 'react-bootstrap-icons';
 import claudioiaLogo from './claudioia-logo.png';
@@ -12,6 +13,8 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [bannerUrl, setBannerUrl] = useState(null);
+  const [showEmailNotVerifiedModal, setShowEmailNotVerifiedModal] = useState(false);
+  const [emailNaoVerificado, setEmailNaoVerificado] = useState('');
   const { login, setTenantId, setNivelAcesso } = useContext(AuthContext);
   const navigate = useNavigate();
 
@@ -81,7 +84,14 @@ function Login() {
         login();
         navigate('/');
       } else {
-        setErrorMessage(data.message || 'Usuário ou senha inválidos.');
+        // Verificar se é erro de email não verificado
+        if (data.emailNotVerified && data.email) {
+          setEmailNaoVerificado(data.email);
+          setShowEmailNotVerifiedModal(true);
+          setErrorMessage('');
+        } else {
+          setErrorMessage(data.message || 'Usuário ou senha inválidos.');
+        }
       }
     } catch (error) {
       console.error('Erro ao fazer login:', error);
@@ -339,6 +349,128 @@ function Login() {
           </p>
         </div>
       </footer>
+
+      {/* Modal de Email Não Verificado */}
+      <Modal 
+        show={showEmailNotVerifiedModal} 
+        onHide={() => {
+          setShowEmailNotVerifiedModal(false);
+          setEmailNaoVerificado('');
+        }} 
+        centered
+        backdrop="static"
+        keyboard={false}
+      >
+        <Modal.Body style={{ padding: '2rem', textAlign: 'center' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div 
+              style={{
+                width: '80px',
+                height: '80px',
+                margin: '0 auto 1.5rem',
+                borderRadius: '50%',
+                backgroundColor: '#fef3c7',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '2.5rem',
+              }}
+            >
+              ⚠️
+            </div>
+            <h4 style={{ 
+              color: '#1a1a1a', 
+              marginBottom: '1rem',
+              fontWeight: '600',
+              fontSize: '1.5rem'
+            }}>
+              E-mail não verificado
+            </h4>
+            <p style={{ 
+              color: '#666', 
+              marginBottom: '1rem',
+              lineHeight: '1.6',
+              fontSize: '1rem'
+            }}>
+              Para fazer login, você precisa validar seu e-mail primeiro.
+            </p>
+            <p style={{ 
+              color: '#666', 
+              marginBottom: '0.5rem',
+              fontSize: '0.95rem'
+            }}>
+              Verifique o e-mail enviado para:
+            </p>
+            <p style={{ 
+              color: '#2563eb', 
+              fontWeight: '600',
+              marginBottom: '1.5rem',
+              fontSize: '1rem',
+              wordBreak: 'break-word',
+              backgroundColor: '#f0f9ff',
+              padding: '0.75rem',
+              borderRadius: '6px',
+              border: '1px solid #bae6fd'
+            }}>
+              {emailNaoVerificado}
+            </p>
+            <div style={{
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1.5rem',
+              textAlign: 'left'
+            }}>
+              <p style={{ 
+                color: '#92400e', 
+                margin: 0,
+                fontSize: '0.9rem',
+                lineHeight: '1.6'
+              }}>
+                <strong>O que fazer:</strong>
+              </p>
+              <ol style={{ 
+                color: '#92400e', 
+                margin: '0.5rem 0 0 0',
+                paddingLeft: '1.2rem',
+                fontSize: '0.9rem',
+                lineHeight: '1.8'
+              }}>
+                <li>Abra sua caixa de entrada do e-mail <strong>{emailNaoVerificado}</strong></li>
+                <li>Procure pelo e-mail do <strong>EstoqueUni</strong></li>
+                <li>Clique no botão de confirmação no e-mail</li>
+                <li>Volte aqui e tente fazer login novamente</li>
+              </ol>
+            </div>
+            <p style={{ 
+              color: '#666', 
+              fontSize: '0.875rem',
+              marginBottom: '1.5rem'
+            }}>
+              Não recebeu o e-mail? Verifique sua pasta de spam ou lixo eletrônico.
+            </p>
+          </div>
+          <Button 
+            variant="primary" 
+            onClick={() => {
+              setShowEmailNotVerifiedModal(false);
+              setEmailNaoVerificado('');
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              fontSize: '1rem',
+              fontWeight: '600',
+              backgroundColor: '#2563eb',
+              border: 'none',
+              borderRadius: '6px'
+            }}
+          >
+            Entendi, vou verificar meu e-mail
+          </Button>
+        </Modal.Body>
+      </Modal>
     </div>
   );
 }

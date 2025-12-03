@@ -30,6 +30,10 @@ const tenantSchema = new mongoose.Schema(
       type: String,
       default: 'Administrador',
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     assinatura: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'estoqueuni_assinaturas',

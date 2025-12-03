@@ -4,6 +4,7 @@ import EventoProcessado from '../models/EventoProcessado.js';
 import Produto from '../models/Produto.js';
 import sincronizadorEstoqueService from '../services/sincronizadorEstoqueService.js';
 import { getBrazilNow } from '../utils/timezone.js';
+import inconsistenciasService from '../services/inconsistenciaEstoqueService.js';
 
 class SincronizacaoController {
   async obterConfiguracao(req, res) {
@@ -80,7 +81,6 @@ class SincronizacaoController {
         sucesso: false,
       });
 
-      const cronjob = config.cronjob || {};
       const ativo = config.ativo && config.isConfigurationComplete();
 
       const response = {
@@ -94,12 +94,6 @@ class SincronizacaoController {
         totalPendentes: 0,
         estatisticas: config.estatisticas || {},
         webhook: this._montarStatusWebhook(config),
-        cronjob: {
-          ativo: cronjob.ativo || false,
-          intervaloMinutos: cronjob.intervaloMinutos || 30,
-          ultimaExecucao: cronjob.ultimaExecucao,
-          proximaExecucao: cronjob.proximaExecucao,
-        },
       };
 
       return res.json({
@@ -112,6 +106,79 @@ class SincronizacaoController {
         success: false,
         message: error.message || 'Erro ao obter status',
       });
+    }
+  }
+
+  async listarSuspeitos(req, res) {
+    try {
+      const tenantId = this._obterTenantId(req);
+      if (!tenantId) {
+        return res.status(400).json({ success: false, message: 'tenantId é obrigatório' });
+      }
+
+      const limite = Number(req.query?.limit) || 50;
+      const lista = await inconsistenciasService.listarSuspeitos(tenantId, limite);
+
+      return res.json({ success: true, data: lista });
+    } catch (error) {
+      console.error('[SINCRONIZACAO] Erro ao listar suspeitos:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Erro ao listar suspeitos' });
+    }
+  }
+
+  async reconciliarSuspeitos(req, res) {
+    try {
+      const tenantId = this._obterTenantId(req);
+      if (!tenantId) {
+        return res.status(400).json({ success: false, message: 'tenantId é obrigatório' });
+      }
+
+      const limite = Math.min(Number(req.body?.limit) || 50, 200);
+      const lista = await inconsistenciasService.listarSuspeitos(tenantId, limite);
+      const skus = (lista || []).map((item) => item.sku).filter(Boolean);
+
+      const resultado = await this._reconciliarListaSkus(skus, tenantId, 'reconciliacao-suspeitos');
+      return res.json({ success: true, data: resultado });
+    } catch (error) {
+      console.error('[SINCRONIZACAO] Erro na reconciliação de suspeitos:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Erro na reconciliação' });
+    }
+  }
+
+  async reconciliarRecentes(req, res) {
+    try {
+      const tenantId = this._obterTenantId(req);
+      if (!tenantId) {
+        return res.status(400).json({ success: false, message: 'tenantId é obrigatório' });
+      }
+      const horas = Number(req.body?.horas) || 24;
+      const limite = Math.min(Number(req.body?.limit) || 20, 200);
+      const skus = await inconsistenciasService.obterUltimosSkusProcessados(tenantId, horas, limite);
+
+      const resultado = await this._reconciliarListaSkus(skus, tenantId, 'reconciliacao-recentes');
+      return res.json({ success: true, data: resultado });
+    } catch (error) {
+      console.error('[SINCRONIZACAO] Erro na reconciliação de recentes:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Erro na reconciliação' });
+    }
+  }
+
+  async reconciliarLista(req, res) {
+    try {
+      const tenantId = this._obterTenantId(req);
+      const skus = Array.isArray(req.body?.skus) ? req.body.skus : [];
+      if (!tenantId) {
+        return res.status(400).json({ success: false, message: 'tenantId é obrigatório' });
+      }
+      if (!skus.length) {
+        return res.status(400).json({ success: false, message: 'Lista de SKUs não fornecida' });
+      }
+
+      const resultado = await this._reconciliarListaSkus(skus, tenantId, 'reconciliacao-manual');
+      return res.json({ success: true, data: resultado });
+    } catch (error) {
+      console.error('[SINCRONIZACAO] Erro na reconciliação de lista:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Erro na reconciliação' });
     }
   }
 
@@ -408,44 +475,6 @@ class SincronizacaoController {
     }
   }
 
-  async atualizarCronjob(req, res) {
-    try {
-      const tenantId = req.body?.tenantId;
-      if (!tenantId) {
-        return res.status(400).json({
-          success: false,
-          message: 'tenantId é obrigatório',
-        });
-      }
-
-      const { ativo, intervaloMinutos } = req.body;
-
-      const campos = {};
-      if (typeof ativo === 'boolean') campos['cronjob.ativo'] = ativo;
-      if (intervaloMinutos !== undefined) {
-        const intervalo = Math.max(1, Math.min(Number(intervaloMinutos), 1440));
-        campos['cronjob.intervaloMinutos'] = intervalo;
-      }
-
-      const config = await ConfiguracaoSincronizacao.findOneAndUpdate(
-        { tenantId },
-        { $set: campos },
-        { new: true }
-      );
-
-      return res.json({
-        success: true,
-        data: this._formatarConfig(config),
-      });
-    } catch (error) {
-      console.error('[SINCRONIZACAO] Erro ao atualizar cronjob:', error);
-      return res.status(500).json({
-        success: false,
-        message: error.message || 'Erro ao atualizar cronjob',
-      });
-    }
-  }
-
   async limparEstatisticas(req, res) {
     try {
       const tenantId = this._obterTenantId(req);
@@ -478,6 +507,28 @@ class SincronizacaoController {
 
   _obterTenantId(req) {
     return req.query?.tenantId || req.body?.tenantId || req.params?.tenantId;
+  }
+
+  async _reconciliarListaSkus(skus = [], tenantId, origem = 'reconciliacao') {
+    const resultados = [];
+    const vistos = new Set();
+    for (const sku of skus) {
+      const chave = String(sku).trim();
+      if (!chave || vistos.has(chave)) continue;
+      vistos.add(chave);
+      try {
+        const res = await sincronizadorEstoqueService.sincronizarEstoque(chave, tenantId, origem);
+        resultados.push({ sku: chave, sucesso: true, resultado: res });
+      } catch (error) {
+        resultados.push({ sku: chave, sucesso: false, erro: error.message || String(error) });
+      }
+    }
+    return {
+      total: resultados.length,
+      sucesso: resultados.filter((r) => r.sucesso).length,
+      erros: resultados.filter((r) => !r.sucesso),
+      resultados,
+    };
   }
 
   _formatarConfig(config) {

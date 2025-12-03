@@ -14,6 +14,8 @@ import SincronizacaoEstoque from './pages/SincronizacaoEstoque';
 import BlingCallback from './pages/BlingCallback';
 import PainelPresidente from './pages/PainelPresidente';
 import ChatWidget from './components/ChatWidget';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // Criar instância do QueryClient
 const queryClient = new QueryClient({
@@ -130,6 +132,7 @@ function App() {
       <AuthProvider>
         <TenantProvider>
           <AppContent />
+          <ToastContainer position="top-right" autoClose={4000} newestOnTop />
         </TenantProvider>
       </AuthProvider>
     </QueryClientProvider>

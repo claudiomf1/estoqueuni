@@ -7,6 +7,7 @@ import blingService from './blingService.js';
 import BlingConfig from '../models/BlingConfig.js';
 import autoUpdateTracker from './autoUpdateTracker.js'; 
 import { getBrazilNow } from '../utils/timezone.js'; 
+import inconsistenciasService from './inconsistenciaEstoqueService.js';
 
 const logWithTimestamp = (fn, message) => {
   const iso = getBrazilNow().toISOString();
@@ -22,7 +23,7 @@ class SincronizadorEstoqueService {
    * Executa sincronização para um produto específico.
    * @param {string} produtoId - SKU/ID do produto no Bling
    * @param {string} tenantId - Tenant responsável
-   * @param {string} origem - manual | webhook | cronjob
+   * @param {string} origem - manual | webhook
    * @param {Object} options - Opções extras
    * @returns {Promise<Object>}
    */
@@ -160,6 +161,8 @@ class SincronizadorEstoqueService {
       .map(item => `[Depósito ${item.depositoId}] ${item.erro}`);
 
     await this._atualizarProdutoLocal(skuResolvido, tenantId, estoquePorConta, total);
+    // Se não houve erros, remove da lista de suspeitos
+    await inconsistenciasService.resolverSuspeito(tenantId, skuResolvido);
 
     config.ultimaSincronizacao = getBrazilNow();
     config.incrementarEstatistica(origem);
@@ -440,6 +443,11 @@ class SincronizadorEstoqueService {
     for (const depositoId of depositosCompartilhados) {
       const deposito = mapaDepositos.get(depositoId);
       if (!deposito) {
+        await inconsistenciasService.marcarSuspeito(
+          tenantId,
+          sku,
+          `Depósito ${depositoId} não encontrado na configuração`
+        );
         resultados.push({
           depositoId,
           nomeDeposito: depositoId,
@@ -450,6 +458,11 @@ class SincronizadorEstoqueService {
       }
 
       if (!contasAtivasSet.has(deposito.contaBlingId)) {
+        await inconsistenciasService.marcarSuspeito(
+          tenantId,
+          sku,
+          `Conta inativa para depósito ${depositoId}`
+        );
         resultados.push({
           depositoId,
           nomeDeposito: deposito.nome || depositoId,
@@ -461,6 +474,11 @@ class SincronizadorEstoqueService {
       }
 
       if (!deposito.contaBlingId) {
+        await inconsistenciasService.marcarSuspeito(
+          tenantId,
+          sku,
+          `Depósito ${depositoId} sem conta Bling vinculada`
+        );
         resultados.push({
           depositoId,
           nomeDeposito: deposito.nome || depositoId,
@@ -491,6 +509,11 @@ class SincronizadorEstoqueService {
           }
 
           if (!produtoBling || !produtoBling.id) {
+            await inconsistenciasService.marcarSuspeito(
+              tenantId,
+              sku,
+              `Produto não encontrado no Bling para conta ${deposito.contaBlingId}`
+            );
             throw new Error('Produto não encontrado no Bling para esta conta');
           }
 
@@ -610,6 +633,11 @@ class SincronizadorEstoqueService {
           retornoBling: retornoApi,
         });
       } catch (error) {
+        await inconsistenciasService.marcarSuspeito(
+          tenantId,
+          sku,
+          error?.message || 'Erro ao atualizar depósito compartilhado'
+        );
         resultados.push({
           depositoId: deposito.id,
           nomeDeposito: deposito.nome || deposito.id,

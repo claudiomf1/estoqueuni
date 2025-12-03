@@ -84,16 +84,19 @@ export const sincronizacaoApi = {
     }),
 
   /**
-   * Atualiza configuração de cronjob
-   * @param {string} tenantId - ID do tenant
-   * @param {Object} config - Configuração do cronjob (ativo, intervaloMinutos)
-   * @returns {Promise} Resposta com configuração atualizada
+   * Reconciliação on-demand e suspeitos
    */
-  atualizarConfiguracaoCronjob: (tenantId, config) =>
-    api.put('/cronjob', {
-      tenantId,
-      ...config
-    }),
+  listarSuspeitos: (tenantId, limit = 50) =>
+    api.get('/suspeitos', { params: { tenantId, limit } }),
+
+  reconciliarSuspeitos: (tenantId, limit = 50) =>
+    api.post('/reconciliar/suspeitos', { tenantId, limit }),
+
+  reconciliarRecentes: (tenantId, horas = 24, limit = 20) =>
+    api.post('/reconciliar/recentes', { tenantId, horas, limit }),
+
+  reconciliarLista: (tenantId, skus = []) =>
+    api.post('/reconciliar/lista', { tenantId, skus }),
 
   /**
    * Obtém histórico de sincronizações
@@ -160,4 +163,3 @@ export const sincronizacaoApi = {
 };
 
 export default sincronizacaoApi;
-

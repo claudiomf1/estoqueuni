@@ -39,6 +39,9 @@ FROM nginx:alpine
 # O build está em /workspace/build/www
 COPY --from=builder /workspace/build/www /usr/share/nginx/html
 
+# Limpar scripts padrão do entrypoint (evita avisos e tentativas de sobrescrever default.conf)
+RUN rm -rf /docker-entrypoint.d/*
+
 # Copiar configuração customizada do Nginx
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 

@@ -39,6 +39,19 @@ function Passo5AtivarWebhooks({
         <br />
         Você precisa ativar <strong>3 tipos de notificações automáticas</strong> para o EstoqueUni funcionar completamente.
       </Alert>
+      <Alert variant="light" className="mb-3 border">
+        <strong>✅ Permissões necessárias em "Pedidos de Venda":</strong>
+        <ul className="mb-0 mt-2">
+          <li>Gerenciar Pedidos de Venda (inserir/editar)</li>
+          <li>Exclusão de Pedidos de Venda</li>
+          <li>Gerenciar situações dos Pedidos de Venda</li>
+          <li>Lançar contas em Pedidos de Venda</li>
+          <li>Lançar estoque em Pedidos de Venda</li>
+        </ul>
+        <small className="text-muted">
+          Marque estes escopos na tela de permissões do Bling para que os webhooks de venda funcionem corretamente.
+        </small>
+      </Alert>
       <Card className="mb-3">
         <Card.Body>
           <h6>Ative os seguintes tipos de notificações automáticas (webhooks) na ordem que preferir:</h6>

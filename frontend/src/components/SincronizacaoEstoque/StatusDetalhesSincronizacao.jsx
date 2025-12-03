@@ -1,6 +1,6 @@
 import React from 'react';
-import { Row, Col, Badge } from 'react-bootstrap';
-import { CheckCircle, XCircle, Clock } from 'react-bootstrap-icons';
+import { Row, Col } from 'react-bootstrap';
+import { Clock } from 'react-bootstrap-icons';
 
 /**
  * Componente que exibe detalhes adicionais de sincronização
@@ -18,28 +18,7 @@ function StatusDetalhesSincronizacao({ status }) {
 
   return (
     <Row>
-      <Col md={6} className="mb-3">
-        <div className="d-flex align-items-center">
-          <div className="me-3">
-            {status.cronjobAtivo ? (
-              <CheckCircle size={32} className="text-success" />
-            ) : (
-              <XCircle size={32} className="text-warning" />
-            )}
-          </div>
-          <div>
-            <div className="fw-bold">Sincronização Automática</div>
-            <Badge bg={status.cronjobAtivo ? 'success' : 'warning'}>
-              {status.cronjobAtivo ? 'Ativo' : 'Inativo'}
-            </Badge>
-            <small className="text-muted d-block mt-1">
-              Verificação periódica de estoques
-            </small>
-          </div>
-        </div>
-      </Col>
-
-      <Col md={6} className="mb-3">
+      <Col md={12} className="mb-3">
         <div className="d-flex align-items-center">
           <div className="me-3">
             <Clock size={32} className="text-info" />
@@ -57,7 +36,6 @@ function StatusDetalhesSincronizacao({ status }) {
 }
 
 export default StatusDetalhesSincronizacao;
-
 
 
 

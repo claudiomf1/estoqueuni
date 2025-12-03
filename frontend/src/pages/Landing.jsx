@@ -24,6 +24,10 @@ export default function Landing() {
   const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState(false);
   const [mostrarSenhaCadastro, setMostrarSenhaCadastro] = useState(false);
   const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false);
+  const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
+  const [emailCadastrado, setEmailCadastrado] = useState('');
+  const [showEmailNotVerifiedModal, setShowEmailNotVerifiedModal] = useState(false);
+  const [emailNaoVerificado, setEmailNaoVerificado] = useState('');
 
   useEffect(() => {
     carregarLogo();
@@ -78,7 +82,14 @@ export default function Landing() {
         // Sempre redireciona para o dashboard quando logar pela landing page
         navigate('/');
       } else {
-        setErrorMessage(data.message || 'Usuário ou senha inválidos.');
+        // Verificar se é erro de email não verificado
+        if (data.emailNotVerified && data.email) {
+          setEmailNaoVerificado(data.email);
+          setShowEmailNotVerifiedModal(true);
+          setErrorMessage('');
+        } else {
+          setErrorMessage(data.message || 'Usuário ou senha inválidos.');
+        }
       }
     } catch (error) {
       setErrorMessage('Erro ao conectar com o servidor. Tente novamente.');
@@ -90,6 +101,13 @@ export default function Landing() {
   const handleCadastro = async (e) => {
     e.preventDefault();
     setErrorMessage('');
+
+    // Validação de email
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(cadastroData.email)) {
+      setErrorMessage('Formato de e-mail inválido.');
+      return;
+    }
 
     if (cadastroData.senha !== cadastroData.confirmarSenha) {
       setErrorMessage('As senhas não coincidem.');
@@ -104,7 +122,6 @@ export default function Landing() {
     setLoading(true);
 
     try {
-      // TODO: Implementar endpoint de cadastro
       const response = await fetch('/api/auth/cadastro', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,10 +139,19 @@ export default function Landing() {
 
       if (data.success) {
         setShowCadastro(false);
-        setShowLogin(true);
-        setLoginData({ username: cadastroData.usuario, password: '' });
         setErrorMessage('');
-        alert('Cadastro realizado com sucesso! Faça login para continuar.');
+        // Armazenar email para mostrar no modal
+        setEmailCadastrado(cadastroData.email);
+        // Limpar dados do formulário
+        setCadastroData({
+          nome: '',
+          email: '',
+          usuario: '',
+          senha: '',
+          confirmarSenha: '',
+        });
+        // Mostrar modal de verificação de email
+        setShowEmailVerificationModal(true);
       } else {
         setErrorMessage(data.message || 'Erro ao realizar cadastro.');
       }
@@ -553,6 +579,236 @@ export default function Landing() {
               {loading ? 'Criando conta...' : 'Criar Conta'}
             </Button>
           </Form>
+        </Modal.Body>
+      </Modal>
+
+      {/* Modal de Verificação de Email */}
+      <Modal 
+        show={showEmailVerificationModal} 
+        onHide={() => setShowEmailVerificationModal(false)} 
+        centered
+        backdrop="static"
+        keyboard={false}
+      >
+        <Modal.Body style={{ padding: '2rem', textAlign: 'center' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div 
+              style={{
+                width: '80px',
+                height: '80px',
+                margin: '0 auto 1.5rem',
+                borderRadius: '50%',
+                backgroundColor: '#e3f2fd',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '2.5rem',
+              }}
+            >
+              ✉️
+            </div>
+            <h4 style={{ 
+              color: '#1a1a1a', 
+              marginBottom: '1rem',
+              fontWeight: '600',
+              fontSize: '1.5rem'
+            }}>
+              Verifique seu e-mail
+            </h4>
+            <p style={{ 
+              color: '#666', 
+              marginBottom: '1rem',
+              lineHeight: '1.6',
+              fontSize: '1rem'
+            }}>
+              Enviamos um link de verificação para:
+            </p>
+            <p style={{ 
+              color: '#2563eb', 
+              fontWeight: '600',
+              marginBottom: '1.5rem',
+              fontSize: '1rem',
+              wordBreak: 'break-word'
+            }}>
+              {emailCadastrado}
+            </p>
+            <div style={{
+              backgroundColor: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1.5rem',
+              textAlign: 'left'
+            }}>
+              <p style={{ 
+                color: '#0369a1', 
+                margin: 0,
+                fontSize: '0.9rem',
+                lineHeight: '1.6'
+              }}>
+                <strong>Próximos passos:</strong>
+              </p>
+              <ol style={{ 
+                color: '#0369a1', 
+                margin: '0.5rem 0 0 0',
+                paddingLeft: '1.2rem',
+                fontSize: '0.9rem',
+                lineHeight: '1.8'
+              }}>
+                <li>Abra sua caixa de entrada</li>
+                <li>Procure pelo e-mail do <strong>EstoqueUni</strong></li>
+                <li>Clique no botão de confirmação</li>
+                <li>Volte aqui e faça login</li>
+              </ol>
+            </div>
+            <p style={{ 
+              color: '#666', 
+              fontSize: '0.875rem',
+              marginBottom: '1.5rem'
+            }}>
+              Não recebeu o e-mail? Verifique sua pasta de spam ou lixo eletrônico.
+            </p>
+          </div>
+          <Button 
+            variant="primary" 
+            onClick={() => {
+              setShowEmailVerificationModal(false);
+              setShowLogin(true);
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              fontSize: '1rem',
+              fontWeight: '600',
+              backgroundColor: '#2563eb',
+              border: 'none',
+              borderRadius: '6px'
+            }}
+          >
+            Entendi, vou verificar meu e-mail
+          </Button>
+        </Modal.Body>
+      </Modal>
+
+      {/* Modal de Email Não Verificado */}
+      <Modal 
+        show={showEmailNotVerifiedModal} 
+        onHide={() => {
+          setShowEmailNotVerifiedModal(false);
+          setEmailNaoVerificado('');
+        }} 
+        centered
+        backdrop="static"
+        keyboard={false}
+      >
+        <Modal.Body style={{ padding: '2rem', textAlign: 'center' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div 
+              style={{
+                width: '80px',
+                height: '80px',
+                margin: '0 auto 1.5rem',
+                borderRadius: '50%',
+                backgroundColor: '#fef3c7',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '2.5rem',
+              }}
+            >
+              ⚠️
+            </div>
+            <h4 style={{ 
+              color: '#1a1a1a', 
+              marginBottom: '1rem',
+              fontWeight: '600',
+              fontSize: '1.5rem'
+            }}>
+              E-mail não verificado
+            </h4>
+            <p style={{ 
+              color: '#666', 
+              marginBottom: '1rem',
+              lineHeight: '1.6',
+              fontSize: '1rem'
+            }}>
+              Para fazer login, você precisa validar seu e-mail primeiro.
+            </p>
+            <p style={{ 
+              color: '#666', 
+              marginBottom: '0.5rem',
+              fontSize: '0.95rem'
+            }}>
+              Verifique o e-mail enviado para:
+            </p>
+            <p style={{ 
+              color: '#2563eb', 
+              fontWeight: '600',
+              marginBottom: '1.5rem',
+              fontSize: '1rem',
+              wordBreak: 'break-word',
+              backgroundColor: '#f0f9ff',
+              padding: '0.75rem',
+              borderRadius: '6px',
+              border: '1px solid #bae6fd'
+            }}>
+              {emailNaoVerificado}
+            </p>
+            <div style={{
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1.5rem',
+              textAlign: 'left'
+            }}>
+              <p style={{ 
+                color: '#92400e', 
+                margin: 0,
+                fontSize: '0.9rem',
+                lineHeight: '1.6'
+              }}>
+                <strong>O que fazer:</strong>
+              </p>
+              <ol style={{ 
+                color: '#92400e', 
+                margin: '0.5rem 0 0 0',
+                paddingLeft: '1.2rem',
+                fontSize: '0.9rem',
+                lineHeight: '1.8'
+              }}>
+                <li>Abra sua caixa de entrada do e-mail <strong>{emailNaoVerificado}</strong></li>
+                <li>Procure pelo e-mail do <strong>EstoqueUni</strong></li>
+                <li>Clique no botão de confirmação no e-mail</li>
+                <li>Volte aqui e tente fazer login novamente</li>
+              </ol>
+            </div>
+            <p style={{ 
+              color: '#666', 
+              fontSize: '0.875rem',
+              marginBottom: '1.5rem'
+            }}>
+              Não recebeu o e-mail? Verifique sua pasta de spam ou lixo eletrônico.
+            </p>
+          </div>
+          <Button 
+            variant="primary" 
+            onClick={() => {
+              setShowEmailNotVerifiedModal(false);
+              setEmailNaoVerificado('');
+            }}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              fontSize: '1rem',
+              fontWeight: '600',
+              backgroundColor: '#2563eb',
+              border: 'none',
+              borderRadius: '6px'
+            }}
+          >
+            Entendi, vou verificar meu e-mail
+          </Button>
         </Modal.Body>
       </Modal>
     </div>

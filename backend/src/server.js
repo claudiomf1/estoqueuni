@@ -2,7 +2,6 @@ import 'dotenv/config';
 import app from './app.js';
 import { conectarMongoDB } from './config/database.js';
 import { iniciarWorker } from './jobs/processarEvento.js';
-import { iniciarCronjob } from './jobs/verificacaoEstoqueJob.js';
 
 const PORT = process.env.PORT || 5000;
 
@@ -29,16 +28,6 @@ async function iniciarServidor() {
       );
     }
 
-    // Iniciar Cronjob
-    try {
-      iniciarCronjob();
-      console.log('✅ Cronjob de verificação iniciado');
-    } catch (error) {
-      console.error('❌ Erro ao iniciar cronjob:', error);
-      // Não quebra o servidor se o cronjob falhar
-      console.warn('   O servidor continuará rodando sem o cronjob.');
-    }
-
     // Iniciar servidor Express
     app.listen(PORT, () => {
       console.log(`🚀 Servidor rodando na porta ${PORT}`);
@@ -52,7 +41,6 @@ async function iniciarServidor() {
 }
 
 iniciarServidor();
-
 
 
 

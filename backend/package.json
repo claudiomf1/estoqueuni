@@ -25,7 +25,8 @@
     "multer": "^1.4.5-lts.1",
     "sharp": "^0.33.5",
     "bullmq": "^5.0.0",
-    "ioredis": "^5.3.2"
+    "ioredis": "^5.3.2",
+    "nodemailer": "^6.9.16"
   },
   "devDependencies": {
     "nodemon": "^3.1.0",

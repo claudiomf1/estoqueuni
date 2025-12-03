@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev-estoqueuni": "cd .. && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml down && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml up -d && echo '✅ Containers reiniciados! Acesse: http://localhost' && sleep 2 && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml logs -f",
+    "dev-estoqueuni": "cd .. && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml down && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml up -d --build --force-recreate && echo '✅ Containers rebuildados e reiniciados! Acesse: http://localhost' && sleep 2 && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml logs -f",
+    "dev-front-estoqueuni": "cd .. && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml up -d --build --force-recreate estoqueuni-frontend nginx-proxy && echo '✅ Frontend rebuildado! Acesse: http://localhost' && sleep 2 && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml logs -f estoqueuni-frontend nginx-proxy",
     "dev-stop-estoqueuni": "cd .. && docker compose -f docker-compose.base.yml -f docker-compose.dev.yml down && echo '✅ Containers parados!'",
     "deploy-estoqueuni": "cd .. && ./deploy-docker-local-build.sh",
+    "deploy-frontend-prod": "cd .. && ./deploy-frontend-only.sh",
     "deploy-backend-prod": "cd .. && ./deploy-backend-only.sh",
     "logs-prod-estoqueuni": "ssh Linode_dallas 'cd /home/claudio/semtypescript/apps/estoqueuni && docker compose -f docker-compose.base.yml -f docker-compose.prod.yml logs -f'",
     "restart-backend-prod": "ssh Linode_dallas 'cd /home/claudio/semtypescript/apps/estoqueuni && docker compose -f docker-compose.base.yml -f docker-compose.prod.yml restart estoqueuni-backend && echo \"✅ Backend reiniciado!\"'",
@@ -40,7 +42,8 @@
     "react-query": "^3.39.3",
     "react-bootstrap-icons": "^1.11.6",
     "prop-types": "^15.8.1",
-    "lucide-react": "^0.263.1"
+    "lucide-react": "^0.263.1",
+    "react-toastify": "^9.1.3"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",

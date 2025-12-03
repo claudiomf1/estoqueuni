@@ -2,16 +2,27 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import Usuario from '../models/Usuario.js';
 import Tenant from '../models/Tenant.js';
+import TempTenant from '../models/TempTenant.js';
+import { sendVerificationEmail } from '../services/emailService.js';
+import { APP_NAME } from '../config/email.js';
+import { FRONTEND_BASE_URL, JWT_SECRET, EMAIL_TOKEN_EXPIRES_IN } from '../config/auth.js';
 
 const COOKIE_NAME = 'estoqueuni_session';
 const TOKEN_EXPIRATION =
   process.env.ESTOQUEUNI_AUTH_TOKEN_EXPIRES_IN || process.env.AUTH_TOKEN_TTL || '12h';
 
-const getAuthSecret = () =>
-  process.env.ESTOQUEUNI_AUTH_SECRET ||
-  process.env.SECRET_KEY ||
-  process.env.secretKey ||
-  'estoqueuni-dev-secret';
+// getAuthSecret agora vem de config/auth.js
+const getAuthSecret = () => JWT_SECRET;
+
+function normalizeEmail(email = '') {
+  return String(email).trim().toLowerCase();
+}
+
+function generateVerificationToken(tempTenantId) {
+  return jwt.sign({ tempTenantId }, getAuthSecret(), {
+    expiresIn: EMAIL_TOKEN_EXPIRES_IN,
+  });
+}
 
 const buildUserPayload = (doc, { rota_base }) => {
   const tenantId =
@@ -52,13 +63,20 @@ const setSessionCookie = (res, token) => {
 };
 
 const loadUserByUsername = async (username, rota_base) => {
-  const isEmail = username.includes('@');
+  // Normalizar username: trim e lowercase para emails
+  const normalizedUsername = username.trim();
+  const isEmail = normalizedUsername.includes('@');
+  
+  // Para emails, normalizar (lowercase)
+  // Para nomes de usuário, manter case-sensitive mas fazer trim
+  const searchValue = isEmail ? normalizeEmail(normalizedUsername) : normalizedUsername;
 
   // PRIORIDADE: Buscar primeiro no Tenant (tenants-estoqueuni)
   // porque o login do painel do presidente usa o campo 'usuario' do tenant
   const tenantQuery = isEmail
-    ? { email: username, rota_base }
-    : { usuario: username, rota_base };
+    ? { email: searchValue, rota_base }
+    : { usuario: searchValue, rota_base };
+  
   console.log('[findUserByUsername] Buscando tenant PRIMEIRO com query:', JSON.stringify(tenantQuery, null, 2));
   const tenantDoc = await Tenant.findOne(tenantQuery).lean();
   if (tenantDoc) {
@@ -69,8 +87,9 @@ const loadUserByUsername = async (username, rota_base) => {
 
   // Se não encontrou no tenant, buscar no Usuario
   const userQuery = isEmail
-    ? { email: username, rota_base }
-    : { nome_usuario: username, rota_base };
+    ? { email: searchValue, rota_base }
+    : { nome_usuario: searchValue, rota_base };
+  
   console.log('[findUserByUsername] Tenant não encontrado. Buscando usuario com query:', JSON.stringify(userQuery, null, 2));
   const usuarioDoc = await Usuario.findOne(userQuery).lean();
   if (usuarioDoc) {
@@ -78,7 +97,7 @@ const loadUserByUsername = async (username, rota_base) => {
     return { doc: usuarioDoc, accountType: 'usuario' };
   }
 
-  console.log('[findUserByUsername] Nenhum documento encontrado para:', username);
+  console.log('[findUserByUsername] Nenhum documento encontrado para:', normalizedUsername);
   return null;
 };
 
@@ -103,7 +122,34 @@ export async function loginHandler(req, res) {
   }
 
   try {
-    const result = await loadUserByUsername(username.trim(), rota_base);
+    const normalizedUsername = username.trim();
+    const isEmail = normalizedUsername.includes('@');
+    const searchValue = isEmail ? normalizeEmail(normalizedUsername) : normalizedUsername;
+
+    // PRIMEIRO: Verificar se existe cadastro temporário (email não verificado)
+    // Isso deve ser verificado ANTES de validar senha
+    // Se existe TempTenant, sempre mostrar aviso de email não verificado
+    // A validação de senha só acontece DEPOIS de verificar se o email está validado
+    if (isEmail) {
+      const tempTenant = await TempTenant.findOne({
+        email: searchValue,
+        rota_base,
+      }).lean();
+
+      if (tempTenant) {
+        // Sempre mostrar aviso de email não verificado se existe TempTenant
+        // Não validar senha ainda - isso só acontece após email ser validado
+        return res.status(403).json({
+          success: false,
+          message: 'Por favor, confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
+          emailNotVerified: true,
+          email: tempTenant.email || searchValue,
+        });
+      }
+    }
+
+    // SEGUNDO: Buscar usuário/tenant válido
+    const result = await loadUserByUsername(normalizedUsername, rota_base);
     if (!result?.doc) {
       return res
         .status(401)
@@ -123,6 +169,16 @@ export async function loginHandler(req, res) {
       return res
         .status(401)
         .json({ success: false, message: 'Usuário ou senha inválidos.' });
+    }
+
+    // TERCEIRO: Verificar se o email foi confirmado (apenas para tenants)
+    if (accountType === 'tenant' && doc.isEmailVerified === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Por favor, confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
+        emailNotVerified: true,
+        email: doc.email || username,
+      });
     }
 
     console.log('[login] Documento completo do banco:', JSON.stringify(doc, null, 2));
@@ -191,10 +247,21 @@ export async function cadastroHandler(req, res) {
     });
   }
 
+  // Validação básica de email
+  const emailRegex = /\S+@\S+\.\S+/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Formato de e-mail inválido.',
+    });
+  }
+
   try {
+    const normalizedEmail = normalizeEmail(email);
+
     // Verificar se usuário já existe
     const usuarioExistente = await Usuario.findOne({
-      $or: [{ nome_usuario: usuario }, { email }],
+      $or: [{ nome_usuario: usuario }, { email: normalizedEmail }],
       rota_base,
     });
 
@@ -207,7 +274,7 @@ export async function cadastroHandler(req, res) {
 
     // Verificar se tenant já existe
     const tenantExistente = await Tenant.findOne({
-      $or: [{ usuario }, { email }],
+      $or: [{ usuario }, { email: normalizedEmail }],
       rota_base,
     });
 
@@ -218,46 +285,57 @@ export async function cadastroHandler(req, res) {
       });
     }
 
+    // Verificar se já existe um cadastro temporário pendente
+    const tempTenantExistente = await TempTenant.findOne({
+      email: normalizedEmail,
+      rota_base,
+    });
+
+    if (tempTenantExistente) {
+      // Deletar cadastro temporário anterior
+      await TempTenant.deleteOne({ _id: tempTenantExistente._id });
+    }
+
     // Hash da senha
     const senhaHash = await bcrypt.hash(senha, 10);
 
-    // Criar tenant primeiro
-    const novoTenant = new Tenant({
+    // Criar tenant temporário
+    const tempTenant = await TempTenant.create({
       usuario,
       nome,
-      email,
+      email: normalizedEmail,
       senha: senhaHash,
       rota_base,
       tipoLocatario: 'Pessoa Jurídica',
-      nivel_acesso: 'Administrador', // Padrão, pode ser alterado manualmente para 'owner'
-    });
-
-    await novoTenant.save();
-
-    // Criar usuário associado ao tenant
-    const novoUsuario = new Usuario({
-      nome_usuario: usuario,
-      nome,
-      email,
-      senha: senhaHash,
-      rota_base,
-      tenantId: novoTenant._id.toString(),
       nivel_acesso: 'Administrador',
-      ativo: true,
     });
 
-    await novoUsuario.save();
+    // Gerar token de verificação
+    const token = generateVerificationToken(tempTenant._id.toString());
 
-    return res.json({
+    // Enviar email de verificação
+    try {
+      await sendVerificationEmail({
+        to: normalizedEmail,
+        name: nome,
+        token,
+      });
+    } catch (emailError) {
+      // Se falhar ao enviar email, deletar o cadastro temporário
+      await TempTenant.deleteOne({ _id: tempTenant._id });
+      console.error('[cadastro] Erro ao enviar email:', emailError);
+      throw emailError;
+    }
+
+    return res.status(201).json({
       success: true,
-      message: 'Cadastro realizado com sucesso!',
-      tenantId: novoTenant._id.toString(),
+      message: 'Cadastro iniciado. Verifique seu e-mail para confirmar a conta.',
     });
   } catch (error) {
     console.error('[cadastro] Erro ao cadastrar:', error);
     return res.status(500).json({
       success: false,
-      message: 'Erro ao realizar cadastro.',
+      message: 'Erro ao realizar cadastro. Tente novamente.',
     });
   }
 }
@@ -328,6 +406,122 @@ export async function verifyTokenHandler(req, res) {
 
     console.error('[verifyToken] Erro ao verificar token:', error);
     return res.status(500).json({ success: false });
+  }
+}
+
+/**
+ * Handler para verificar email
+ * GET /api/auth/verify-email?token=...
+ */
+export async function verifyEmailHandler(req, res) {
+  const { token } = req.query || {};
+
+  if (!token) {
+    return res.status(400).send(`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; padding: 20px;">
+        <h1 style="color: #dc2626;">Token de verificação é obrigatório.</h1>
+        <p>Por favor, use o link completo enviado por e-mail.</p>
+      </div>
+    `);
+  }
+
+  try {
+    const decoded = jwt.verify(token, getAuthSecret());
+    const { tempTenantId } = decoded;
+
+    const tempTenant = await TempTenant.findById(tempTenantId);
+    if (!tempTenant) {
+      return res.status(400).send(`
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; padding: 20px;">
+          <h1 style="color: #dc2626;">Token inválido ou expirado.</h1>
+          <p>Por favor, solicite um novo link de verificação.</p>
+        </div>
+      `);
+    }
+
+    const normalizedEmail = tempTenant.email;
+    const { usuario, nome, senha, rota_base, tipoLocatario, nivel_acesso } = tempTenant;
+
+    // Verificar se já existe tenant com esse email
+    const tenantExistente = await Tenant.findOne({
+      $or: [{ usuario }, { email: normalizedEmail }],
+      rota_base,
+    });
+
+    if (tenantExistente) {
+      // Se já existe, apenas deletar o temp e mostrar mensagem
+      await TempTenant.deleteOne({ _id: tempTenant._id });
+      return res.send(`
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; padding: 20px;">
+          <h1 style="color: #16a34a;">E-mail já confirmado!</h1>
+          <p>Este e-mail já está cadastrado e verificado no <strong>${APP_NAME}</strong>.</p>
+          <p>Você já pode fazer login.</p>
+        </div>
+      `);
+    }
+
+    // Criar tenant definitivo
+    const novoTenant = new Tenant({
+      usuario,
+      nome,
+      email: normalizedEmail,
+      senha,
+      rota_base,
+      tipoLocatario,
+      nivel_acesso,
+      isEmailVerified: true,
+    });
+
+    await novoTenant.save();
+
+    // Criar usuário associado ao tenant
+    const novoUsuario = new Usuario({
+      nome_usuario: usuario,
+      nome,
+      email: normalizedEmail,
+      senha,
+      rota_base,
+      tenantId: novoTenant._id.toString(),
+      nivel_acesso,
+      ativo: true,
+    });
+
+    await novoUsuario.save();
+
+    // Deletar tenant temporário
+    await TempTenant.deleteOne({ _id: tempTenant._id });
+
+    const loginUrl = `${FRONTEND_BASE_URL.replace(/\/$/, '')}/login`;
+
+    return res.send(`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; padding: 20px; line-height: 1.6;">
+        <h1 style="color: #16a34a; margin-bottom: 20px;">✅ E-mail confirmado!</h1>
+        <p style="font-size: 18px;">Sua conta no <strong>${APP_NAME}</strong> foi ativada com sucesso.</p>
+        <p>Você já pode fazer login utilizando seu e-mail <strong>${normalizedEmail}</strong>.</p>
+        <div style="margin: 30px 0;">
+          <a href="${loginUrl}" 
+             style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+            Ir para o login
+          </a>
+        </div>
+      </div>
+    `);
+  } catch (error) {
+    console.error('[verifyEmail] Erro ao verificar email:', error);
+    if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {
+      return res.status(400).send(`
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; padding: 20px;">
+          <h1 style="color: #dc2626;">Token inválido ou expirado.</h1>
+          <p>Por favor, solicite um novo link de verificação.</p>
+        </div>
+      `);
+    }
+    return res.status(500).send(`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; padding: 20px;">
+        <h1 style="color: #dc2626;">Erro ao verificar e-mail.</h1>
+        <p>Tente novamente mais tarde ou entre em contato com o suporte.</p>
+      </div>
+    `);
   }
 }
 

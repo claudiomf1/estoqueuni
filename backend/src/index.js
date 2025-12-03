@@ -1,7 +1,6 @@
 import app from './app.js';
 import { config } from './config/index.js';
 import { connectDatabase } from './config/database.js';
-import verificacaoEstoqueJob from './jobs/verificacaoEstoqueJob.js';
 import { iniciarWorker } from './jobs/processarEvento.js';
 
 async function startServer() {
@@ -42,9 +41,6 @@ async function startServer() {
       );
       console.warn('   Eventos podem ser processados via fallback síncrono.');
     }
-
-    // Iniciar job de verificação de estoque
-    verificacaoEstoqueJob.iniciarCronjob();
 
     // Graceful shutdown
     process.on('SIGTERM', async () => {

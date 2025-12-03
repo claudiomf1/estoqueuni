@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Container, Accordion } from 'react-bootstrap';
+import { Container, Accordion, Button, Form, Badge, Spinner, Alert, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { useTenant } from '../context/TenantContext';
 import { useQuery, useQueryClient } from 'react-query';
 import { sincronizacaoApi } from '../services/sincronizacaoApi';
 import StatusSincronizacao from '../components/SincronizacaoEstoque/StatusSincronizacao';
 import ConfiguracaoDepositos from '../components/SincronizacaoEstoque/ConfiguracaoDepositos/ConfiguracaoDepositos';
-import ConfiguracaoWebhook from '../components/SincronizacaoEstoque/ConfiguracaoWebhook';
-import ConfiguracaoCronjob from '../components/SincronizacaoEstoque/ConfiguracaoCronjob';
-import SincronizacaoManual from '../components/SincronizacaoEstoque/SincronizacaoManual';
 import HistoricoSincronizacoes from '../components/SincronizacaoEstoque/HistoricoSincronizacoes';
 import LogsMonitoramento from '../components/SincronizacaoEstoque/LogsMonitoramento';
 import StatusWebhookPorConta from '../components/SincronizacaoEstoque/StatusWebhookPorConta';
 import StatusDetalhesSincronizacao from '../components/SincronizacaoEstoque/StatusDetalhesSincronizacao';
+import { QuestionCircle } from 'react-bootstrap-icons';
+import { toast } from 'react-toastify';
 
 export default function SincronizacaoEstoque() {
   const { tenantId } = useTenant();
@@ -19,8 +18,13 @@ export default function SincronizacaoEstoque() {
   const [configDepositos, setConfigDepositos] = useState(null);
   const [pollingAtivo, setPollingAtivo] = useState(true);
   const [accordionAtivo, setAccordionAtivo] = useState(null);
-  const [usuarioFechouWebhook, setUsuarioFechouWebhook] = useState(false);
   const [usuarioFechouStatusWebhook, setUsuarioFechouStatusWebhook] = useState(false);
+  const [reconciliando, setReconciliando] = useState(false);
+  const [suspeitos, setSuspeitos] = useState([]);
+  const [carregandoSuspeitos, setCarregandoSuspeitos] = useState(false);
+  const [horasRecentes, setHorasRecentes] = useState(24);
+  const [limiteRecentes, setLimiteRecentes] = useState(20);
+  const [listaSkusManual, setListaSkusManual] = useState('');
 
   // Query para obter status geral
   const { data: statusResponse, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery(
@@ -50,8 +54,6 @@ export default function SincronizacaoEstoque() {
 
   const status = statusResponse || {};
   const configDepositosAtual = configDepositos || configResponse || {};
-  const cronjobConfigurado = status?.cronjob || configDepositosAtual?.cronjob || {};
-  
   // Processar status de webhook baseado nas contas Bling
   const webhookInfo = status?.webhook || {};
   // Webhook está ativo apenas se todas as contas Bling ativas estiverem configuradas
@@ -59,15 +61,10 @@ export default function SincronizacaoEstoque() {
   const webhookAtivo = webhookInfo.totalContas > 0 && webhookInfo.todasConfiguradas === true;
   
   // Processar status de cronjob
-  const cronjobInfo = status?.cronjob || {};
-  const cronjobAtivo = cronjobInfo.ativo === true;
-  
   const statusComWebhookProcessado = {
     ...status,
     webhookAtivo,
     webhook: webhookInfo,
-    cronjobAtivo,
-    cronjob: cronjobInfo
   };
 
   const statusChecklist = useMemo(() => {
@@ -147,26 +144,50 @@ export default function SincronizacaoEstoque() {
     };
   }, [configDepositosAtual, statusComWebhookProcessado]);
 
-  // Calcular se deve abrir a seção de webhook e atualizar estado
+  const carregarSuspeitos = async () => {
+    if (!tenantId) return;
+    setCarregandoSuspeitos(true);
+    try {
+      const res = await sincronizacaoApi.listarSuspeitos(tenantId, 100);
+      setSuspeitos(res.data?.data || res.data || []);
+    } catch (error) {
+      console.error('Erro ao carregar suspeitos', error);
+      toast.error(error?.mensagem || 'Erro ao carregar suspeitos');
+    } finally {
+      setCarregandoSuspeitos(false);
+    }
+  };
+
   useEffect(() => {
-    if (isLoadingConfig) return; // Aguardar carregamento
-    
-    const contasBlingAtivas = (configDepositosAtual?.contasBling || []).filter(c => c.isActive !== false);
-    const contasConfiguradas = (configDepositosAtual?.contasBling || []).filter(
-      c => c.isActive !== false && c.webhookConfigurado === true
-    );
-    const temContasParaConfigurar = contasBlingAtivas.length > contasConfiguradas.length;
-    
-    // Se não há contas para configurar, garantir que a seção esteja fechada
-    if (!temContasParaConfigurar) {
-      setAccordionAtivo(null);
-      setUsuarioFechouWebhook(false); // Resetar flag quando não há mais contas
+    if (tenantId) {
+      carregarSuspeitos();
     }
-    // Se há contas para configurar e o usuário não fechou manualmente, abrir
-    else if (temContasParaConfigurar && !usuarioFechouWebhook) {
-      setAccordionAtivo('webhook');
+  }, [tenantId]);
+
+  const reconciliarWrapper = async (fn, mensagemSucesso) => {
+    if (!tenantId) return;
+    setReconciliando(true);
+    try {
+      const res = await fn();
+      const data = res?.data?.data || res?.data;
+      toast.success(mensagemSucesso || 'Reconciliação concluída');
+      carregarSuspeitos();
+      queryClient.invalidateQueries(['sincronizacao-status', tenantId]);
+      return data;
+    } catch (error) {
+      console.error('Erro na reconciliação', error);
+      toast.error(error?.mensagem || 'Erro na reconciliação');
+      return null;
+    } finally {
+      setReconciliando(false);
     }
-  }, [configDepositosAtual, isLoadingConfig, usuarioFechouWebhook]);
+  };
+
+  const InfoTooltip = ({ message }) => (
+    <OverlayTrigger placement="top" overlay={<Tooltip>{message}</Tooltip>}>
+      <QuestionCircle className="text-muted" size={16} role="img" aria-label="Ajuda" />
+    </OverlayTrigger>
+  );
 
   // Calcular se deve abrir a seção de status webhook por conta
   useEffect(() => {
@@ -182,10 +203,6 @@ export default function SincronizacaoEstoque() {
     }
     // Não força fechamento quando todas estão configuradas para permitir consulta manual
   }, [statusComWebhookProcessado, isLoadingStatus, usuarioFechouStatusWebhook, accordionAtivo]);
-
-  const handleSincronizacaoCompleta = () => {
-    refetchStatus();
-  };
 
   const handleConfigDepositosUpdate = (novaConfig) => {
     setConfigDepositos(novaConfig);
@@ -234,14 +251,6 @@ export default function SincronizacaoEstoque() {
         activeKey={accordionAtivo || undefined} 
         onSelect={(key) => {
           setAccordionAtivo(key);
-          // Se o usuário fechou a seção de webhook manualmente, marcar flag
-          if (key !== 'webhook' && accordionAtivo === 'webhook') {
-            setUsuarioFechouWebhook(true);
-          }
-          // Se o usuário abriu a seção de webhook manualmente, resetar flag
-          else if (key === 'webhook') {
-            setUsuarioFechouWebhook(false);
-          }
           // Se o usuário fechou a seção de status webhook manualmente, marcar flag
           if (key !== 'status-webhook' && accordionAtivo === 'status-webhook') {
             setUsuarioFechouStatusWebhook(true);
@@ -272,48 +281,6 @@ export default function SincronizacaoEstoque() {
           </Accordion.Body>
         </Accordion.Item>
 
-        {/* Configuração de Webhook */}
-        <Accordion.Item eventKey="webhook">
-          <Accordion.Header>
-            <strong>Configuração de Notificações Automáticas (Webhook)</strong>
-          </Accordion.Header>
-          <Accordion.Body>
-            <ConfiguracaoWebhook
-              tenantId={tenantId}
-              configuracao={configDepositosAtual}
-              isLoading={isLoadingConfig}
-            />
-          </Accordion.Body>
-        </Accordion.Item>
-
-        {/* Configuração de Cronjob */}
-        <Accordion.Item eventKey="cronjob">
-          <Accordion.Header>
-            <strong>Configuração de Sincronização Automática</strong>
-          </Accordion.Header>
-          <Accordion.Body>
-            <ConfiguracaoCronjob
-              tenantId={tenantId}
-              cronjob={cronjobConfigurado}
-              isLoading={isLoadingStatus}
-              onConfigAtualizada={handleCronjobAtualizado}
-            />
-          </Accordion.Body>
-        </Accordion.Item>
-
-        {/* Sincronização Manual */}
-        <Accordion.Item eventKey="manual">
-          <Accordion.Header>
-            <strong>Sincronização Manual</strong>
-          </Accordion.Header>
-          <Accordion.Body>
-            <SincronizacaoManual
-              tenantId={tenantId}
-              onSincronizacaoCompleta={handleSincronizacaoCompleta}
-            />
-          </Accordion.Body>
-        </Accordion.Item>
-
         {/* Histórico de Sincronizações */}
         <Accordion.Item eventKey="historico">
           <Accordion.Header>
@@ -321,6 +288,142 @@ export default function SincronizacaoEstoque() {
           </Accordion.Header>
           <Accordion.Body>
             <HistoricoSincronizacoes tenantId={tenantId} />
+          </Accordion.Body>
+        </Accordion.Item>
+
+        {/* Reconciliação On-Demand */}
+        <Accordion.Item eventKey="reconciliar">
+          <Accordion.Header>
+            <strong>Reconciliar Estoques (on-demand)</strong>
+          </Accordion.Header>
+          <Accordion.Body>
+            <div className="mb-3">
+              <div className="d-flex align-items-center mb-2">
+                <strong className="me-2">Suspeitos (últimos 100)</strong>
+                <InfoTooltip message="Reconcilia apenas SKUs marcados automaticamente como suspeitos (erros ou divergências recentes). Limite de 100 últimos registros." />
+                {carregandoSuspeitos && <Spinner animation="border" size="sm" />}
+                <Button
+                  size="sm"
+                  variant="outline-secondary"
+                  className="ms-2"
+                  onClick={carregarSuspeitos}
+                  disabled={carregandoSuspeitos}
+                >
+                  Recarregar
+                </Button>
+              </div>
+              {suspeitos.length === 0 ? (
+                <Alert variant="light" className="py-2 mb-2">
+                  Nenhum SKU suspeito no momento.
+                </Alert>
+              ) : (
+                <div className="d-flex align-items-center mb-2 flex-wrap">
+                  {suspeitos.map((item) => (
+                    <Badge key={item.sku} bg="secondary" className="me-2 mb-2">
+                      {item.sku}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <Button
+                variant="primary"
+                disabled={reconciliando || suspeitos.length === 0}
+                onClick={() =>
+                  reconciliarWrapper(
+                    () => sincronizacaoApi.reconciliarSuspeitos(tenantId, 100),
+                    'Suspeitos reconciliados'
+                  )
+                }
+              >
+                {reconciliando ? 'Reconcilia...' : 'Reconciliar suspeitos'}
+              </Button>
+            </div>
+
+            <hr />
+
+            <div className="mb-3">
+              <div className="fw-bold mb-2 d-flex align-items-center gap-2">
+                <span>Reconciliar recentes</span>
+                <InfoTooltip message="Reconciliam os últimos SKUs processados em até X horas (padrão 24h), limitado à quantidade informada." />
+              </div>
+              <Form className="d-flex align-items-center flex-wrap gap-2">
+                <Form.Group className="me-3 mb-2">
+                  <Form.Label className="mb-1 small">Horas (até)</Form.Label>
+                  <Form.Control
+                    type="number"
+                    min="1"
+                    max="72"
+                    value={horasRecentes}
+                    onChange={(e) => setHorasRecentes(parseInt(e.target.value) || 24)}
+                    style={{ width: 120 }}
+                  />
+                </Form.Group>
+                <Form.Group className="me-3 mb-2">
+                  <Form.Label className="mb-1 small">Limite</Form.Label>
+                  <Form.Control
+                    type="number"
+                    min="1"
+                    max="200"
+                    value={limiteRecentes}
+                    onChange={(e) => setLimiteRecentes(parseInt(e.target.value) || 20)}
+                    style={{ width: 120 }}
+                  />
+                </Form.Group>
+                <Button
+                  variant="primary"
+                  disabled={reconciliando}
+                  onClick={() =>
+                    reconciliarWrapper(
+                      () => sincronizacaoApi.reconciliarRecentes(tenantId, horasRecentes, limiteRecentes),
+                      'Recentes reconciliados'
+                    )
+                  }
+                >
+                  {reconciliando ? 'Reconcilia...' : 'Reconciliar recentes'}
+                </Button>
+              </Form>
+            </div>
+
+            <hr />
+
+            <div className="mb-3">
+              <div className="fw-bold mb-2 d-flex align-items-center gap-2">
+                <span>Reconciliar lista de SKUs</span>
+                <InfoTooltip message="Reconciliam apenas os SKUs informados manualmente, usando a mesma lógica de atualização de depósitos compartilhados." />
+              </div>
+              <Form.Group className="mb-2">
+                <Form.Control
+                  as="textarea"
+                  rows={3}
+                  placeholder="Informe SKUs separados por linha ou vírgula"
+                  value={listaSkusManual}
+                  onChange={(e) => setListaSkusManual(e.target.value)}
+                />
+                <Form.Text className="text-muted">
+                  Ex.: SKU1,SKU2,SKU3 ou uma por linha.
+                </Form.Text>
+              </Form.Group>
+              <Button
+                variant="primary"
+                disabled={reconciliando || !listaSkusManual.trim()}
+                onClick={() => {
+                  const skus = listaSkusManual
+                    .split(/[,\\n]/)
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  if (!skus.length) {
+                    toast.warn('Informe ao menos um SKU.');
+                    return;
+                  }
+                  reconciliarWrapper(
+                    () => sincronizacaoApi.reconciliarLista(tenantId, skus),
+                    'Lista reconciliada'
+                  );
+                }}
+              >
+                {reconciliando ? 'Reconcilia...' : 'Reconciliar lista'}
+              </Button>
+            </div>
           </Accordion.Body>
         </Accordion.Item>
 

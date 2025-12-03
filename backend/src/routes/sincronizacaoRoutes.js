@@ -23,6 +23,10 @@ router.get('/status', controller.obterStatus.bind(controller));
 
 // ===== SINCRONIZAÇÃO =====
 router.post('/manual', controller.sincronizarManual.bind(controller));
+router.get('/suspeitos', controller.listarSuspeitos.bind(controller));
+router.post('/reconciliar/suspeitos', controller.reconciliarSuspeitos.bind(controller));
+router.post('/reconciliar/recentes', controller.reconciliarRecentes.bind(controller));
+router.post('/reconciliar/lista', controller.reconciliarLista.bind(controller));
 
 // ===== HISTÓRICO E LOGS =====
 router.get('/historico', controller.obterHistorico.bind(controller));
@@ -31,11 +35,8 @@ router.get('/logs', controller.obterLogs.bind(controller));
 // ===== WEBHOOK E CRONJOB =====
 router.put('/webhook', controller.atualizarWebhook.bind(controller));
 router.put('/webhook/marcar-conta-configurada', controller.marcarContaWebhookConfigurada.bind(controller));
-router.put('/cronjob', controller.atualizarCronjob.bind(controller));
 
 // ===== LIMPEZA DE DADOS =====
 router.delete('/estatisticas', controller.limparEstatisticas.bind(controller));
 
 export default router;
-
-

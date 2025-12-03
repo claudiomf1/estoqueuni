@@ -21,7 +21,6 @@ import FiltrosRapidosDias from './HistoricoSincronizacoes/FiltrosRapidosDias';
 
 const ORIGEM_LABELS = {
   webhook: 'Webhook',
-  cronjob: 'Cronjob',
   manual: 'Manual',
   agendado: 'Agendado',
   compartilhado: 'Compartilhado'
@@ -282,7 +281,6 @@ export default function HistoricoSincronizacoes({ tenantId }) {
             >
               <option value="">Todas</option>
               <option value="webhook">Webhook</option>
-              <option value="cronjob">Cronjob</option>
               <option value="manual">Manual</option>
               <option value="agendado">Agendado</option>
               <option value="compartilhado">Compartilhado</option>

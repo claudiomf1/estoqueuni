@@ -50,7 +50,12 @@ services:
       - "80:80"
     # Recarregar configuração mais facilmente em dev
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+      # Diretório vazio para suprimir scripts padrão do entrypoint (evita logs/avisos desnecessários)
+      - ./nginx/entrypoint-empty:/docker-entrypoint.d:ro
+    environment:
+      # Evita aviso do script 10-listen-on-ipv6-by-default.sh alterando default.conf
+      - ENABLE_IPV6=false
+      - DISABLE_IPV6=true
 
   # Redis - Dev (sem mudanças, mas pode adicionar persistência diferente se quiser)
-
