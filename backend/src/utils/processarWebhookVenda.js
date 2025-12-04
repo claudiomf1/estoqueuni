@@ -18,6 +18,7 @@ export async function extrairProdutosDoPedido(payload, tenantId = null, blingAcc
   const produtos = [];
   let blingAccountIdUsado =
     blingAccountId || payload?.companyId || payload?.data?.companyId || null;
+  const forcarBuscaPedidoCompleto = payload.event === 'order.created';
 
   // Formato 1: payload.pedido ou payload.data.pedido
   // Formato novo: payload.data (quando event é "order.created")
@@ -81,7 +82,7 @@ export async function extrairProdutosDoPedido(payload, tenantId = null, blingAcc
   };
 
   // Se não encontrou itens e temos informações suficientes, buscar detalhes completos do pedido via API
-  if ((!Array.isArray(itens) || itens.length === 0) && tenantId) {
+  if ((forcarBuscaPedidoCompleto || (!Array.isArray(itens) || itens.length === 0)) && tenantId) {
     const pedidoId = pedido?.id || 
                      pedido?.pedidoId || 
                      payload.data?.id || 
@@ -184,6 +185,10 @@ export async function extrairProdutosDoPedido(payload, tenantId = null, blingAcc
             String(pedidoId),
             tenantId,
             conta.blingAccountId
+          );
+          console.log(
+            `[Webhook-Venda] 🧾 Retorno completo do pedido ${pedidoId} (conta ${conta.blingAccountId}, event ${payload.event || 'n/a'}):`,
+            JSON.stringify(pedidoCompleto, null, 2)
           );
           const temItens = registrarItensDoPedido(pedidoCompleto, pedidoId, conta);
           if (temItens) {
@@ -656,6 +661,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
             item: null,
             tipoOperacaoEstoque: ehCancelamento ? 'entrada' : 'saida',
             evento: payload.event,
+            ajustarCompartilhadoPorVenda: payload.event === 'order.created',
           },
           recebidoEm: new Date().toISOString(),
         });
@@ -684,6 +690,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
           item: produto.item,
           tipoOperacaoEstoque: ehCancelamento ? 'entrada' : 'saida',
           evento: payload.event,
+          ajustarCompartilhadoPorVenda: payload.event === 'order.created',
         },
         recebidoEm: new Date().toISOString(),
       });

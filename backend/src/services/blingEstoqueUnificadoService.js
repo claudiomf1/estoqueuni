@@ -82,7 +82,7 @@ class BlingEstoqueUnificadoService {
    * @param {string} sku
    * @returns {Promise<{total: number, estoquePorConta: Object, erros: Array, detalhesPorConta: Object}>}
    */
-  async buscarEstoqueUnificado(tenantId, sku, mapaDepositosMonitorados = {}, contasPermitidas = []) {
+  async buscarEstoqueUnificado(tenantId, sku, mapaDepositosMonitorados = {}, contasPermitidas = [], options = {}) {
     const skuNormalizado = normalizeSku(sku);
     const estoquePorConta = {};
     const detalhesPorConta = {};
@@ -172,9 +172,10 @@ class BlingEstoqueUnificadoService {
             produto?.id,
             depositoId,
             tenantId,
-              conta.blingAccountId
-            );
-            saldosMonitorados[depositoId] = saldoDeposito;
+            conta.blingAccountId,
+            { usarSaldoVirtual: options.usarSaldoVirtual || false }
+          );
+          saldosMonitorados[depositoId] = saldoDeposito;
           } catch (errorSaldo) {
             console.warn(
               `[ESTOQUE-UNIFICADO] ⚠️ Não foi possível obter saldo do depósito ${depositoId} para conta ${conta.accountName}: ${errorSaldo.message}`

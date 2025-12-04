@@ -565,9 +565,10 @@ class BlingService {
    * @param {string|number} depositoId
    * @param {string} tenantId
    * @param {string} blingAccountId
+   * @param {Object} options - Opções extras: { usarSaldoVirtual: boolean }
    * @returns {Promise<number>}
    */
-  async getSaldoProdutoPorDeposito(produtoId, depositoId, tenantId, blingAccountId) {
+  async getSaldoProdutoPorDeposito(produtoId, depositoId, tenantId, blingAccountId, options = {}) {
     if (!produtoId || !depositoId) {
       throw new Error('produtoId e depositoId são obrigatórios para consultar saldo');
     }
@@ -607,12 +608,18 @@ class BlingService {
         const saldoFisico = Number(registro.saldoFisicoTotal || 0);
         const saldoVirtual = Number(registro.saldoVirtualTotal || 0);
         
+        // Se for para usar saldoVirtual (ex: pedidos de venda), priorizar saldoVirtual
+        if (options.usarSaldoVirtual && saldoVirtual !== null && saldoVirtual !== undefined) {
+          return saldoVirtual;
+        }
+        
         // Log detalhado para debug (primeira vez ou quando houver reservado)
         if (saldoReservado > 0 || process.env.NODE_ENV === 'development') {
           console.log(`[BLING-SERVICE] 📊 Saldo do produto ${produtoId} no depósito ${depositoId}:`, {
             saldoFisicoTotal: saldoFisico,
             saldoVirtualTotal: saldoVirtual,
             saldoReservado: saldoReservado,
+            usarSaldoVirtual: options.usarSaldoVirtual,
             camposDisponiveis: Object.keys(registro),
           });
         }
