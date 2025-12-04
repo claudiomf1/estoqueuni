@@ -2,6 +2,7 @@ import { adicionarEventoNaFila } from '../services/queueService.js';
 import ConfiguracaoSincronizacao from '../models/ConfiguracaoSincronizacao.js';
 import Tenant from '../models/Tenant.js';
 import { processarWebhookVenda } from '../utils/processarWebhookVenda.js';
+import { getBrazilNow } from '../utils/timezone.js';
 
 /** 
  * Controller para receber webhooks do Bling
@@ -127,6 +128,8 @@ class WebhookController {
         if (tenantNome) {
           console.log(`[Webhook] 🏷️ Tenant identificado: ${tenantNome} (${tenantId})`);
         }
+        // Marcar webhook como ativo/configurado para o tenant (e conta, se identificada)
+        await this._marcarWebhookConfigurado(tenantId, blingAccountId);
       }
 
       // Processar webhook (suporta vendas e eventos de estoque)
@@ -249,7 +252,7 @@ class WebhookController {
    * 
    * Permite testar webhook manualmente
    */
-  async testarWebhook(req, res) {
+ async testarWebhook(req, res) {
     try {
       console.log('[Webhook] 🧪 Teste de webhook recebido');
       
@@ -286,6 +289,62 @@ class WebhookController {
         error: 'Erro ao testar webhook',
         message: error.message,
       });
+    }
+  }
+
+  /**
+   * Endpoint de ping/health para GET/HEAD (usado para testes externos)
+   * GET /api/webhooks/bling?tenantId=...
+   */
+  async ping(req, res) {
+    const tenantId = req.query?.tenantId || req.body?.tenantId || null;
+    res.status(200).json({
+      success: true,
+      message: 'Webhook endpoint ok',
+      tenantId,
+      method: req.method,
+    });
+  }
+
+  /**
+   * Marca o webhook como configurado/ativo para o tenant (e para a conta, se informada)
+   */
+  async _marcarWebhookConfigurado(tenantId, blingAccountId) {
+    if (!tenantId) return;
+    const agora = getBrazilNow();
+    try {
+      if (blingAccountId) {
+        await ConfiguracaoSincronizacao.updateOne(
+          { tenantId },
+          {
+            $set: {
+              'webhook.ativo': true,
+              'webhook.ultimaRequisicao': agora,
+              'contasBling.$[cb].webhookConfigurado': true,
+              'contasBling.$[cb].webhookConfiguradoEm': agora,
+            },
+          },
+          {
+            arrayFilters: [{ 'cb.blingAccountId': blingAccountId }],
+          }
+        );
+      } else {
+        await ConfiguracaoSincronizacao.updateOne(
+          { tenantId },
+          {
+            $set: {
+              'webhook.ativo': true,
+              'webhook.ultimaRequisicao': agora,
+              'contasBling.$[].webhookConfigurado': true,
+              'contasBling.$[].webhookConfiguradoEm': agora,
+            },
+          }
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `[Webhook] ⚠️ Não foi possível marcar webhook configurado para tenant ${tenantId}: ${error.message}`
+      );
     }
   }
 }

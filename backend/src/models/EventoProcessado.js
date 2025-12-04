@@ -17,6 +17,11 @@ const compartilhadoSchema = new mongoose.Schema(
     sucesso: { type: Boolean, default: true },
     mensagem: { type: String, trim: true },
     erro: { type: String, trim: true },
+    quantidade: { type: Number, default: null },
+    quantidadeBase: { type: Number, default: null },
+    saldoAtual: { type: Number, default: null },
+    deltaAplicado: { type: Number, default: null },
+    aplicarDelta: { type: Boolean, default: null },
   },
   { _id: false }
 );
@@ -84,6 +89,10 @@ const eventoProcessadoSchema = new mongoose.Schema(
     erro: {
       type: String,
       trim: true,
+      default: null,
+    },
+    debugInfo: {
+      type: mongoose.Schema.Types.Mixed,
       default: null,
     },
     processadoEm: {

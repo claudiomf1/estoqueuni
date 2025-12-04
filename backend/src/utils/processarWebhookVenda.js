@@ -689,21 +689,37 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
       });
     }
   } else if (tipoEvento === 'estoque') {
-    // Evento direto de estoque (não é venda)
+    // Evento direto de estoque (ajuste manual/entrada/saída)
     const eventoId = payload.eventoId || payload.idEvento || payload.eventId || `estoque-${Date.now()}`;
     const produtoExtraido = extrairProdutoEstoque(payload);
     const produtoId = produtoExtraido.produtoId;
+    const depositoId = extrairDeposito(payload);
+    const quantidadeEstoque =
+      payload?.quantidade ??
+      payload?.data?.quantidade ??
+      payload?.data?.deposito?.saldoFisico ??
+      null;
+    const operacaoEstoque = payload?.data?.operacao || payload?.operacao || null;
 
     if (produtoId) {
       eventos.push({
         produtoId: String(produtoId),
         eventoId: eventoId,
-        depositoId: extrairDeposito(payload),
+        depositoId,
         tenantId: tenantId,
-        blingAccountId: blingAccountId || payload.blingAccountId || payload.accountId,
+        blingAccountId: blingAccountId || payload.blingAccountId || payload.accountId || payload.data?.companyId,
         tipo: 'estoque',
         origem: 'webhook',
-        dados: payload,
+        dados: {
+          quantidade: quantidadeEstoque,
+          depositoId,
+          operacaoEstoque,
+          saldoFisicoTotal: payload?.data?.saldoFisicoTotal,
+          saldoVirtualTotal: payload?.data?.saldoVirtualTotal,
+          saldoDepositoFisico: payload?.data?.deposito?.saldoFisico,
+          saldoDepositoVirtual: payload?.data?.deposito?.saldoVirtual,
+          raw: payload,
+        },
         recebidoEm: new Date().toISOString(),
       });
     } else {

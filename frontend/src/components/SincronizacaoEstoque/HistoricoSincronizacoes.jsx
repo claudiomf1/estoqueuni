@@ -7,7 +7,8 @@ import {
   Badge,
   Spinner,
   Alert,
-  Collapse
+  Collapse,
+  ListGroup
 } from 'react-bootstrap';
 import {
   ClockHistory,
@@ -223,6 +224,110 @@ export default function HistoricoSincronizacoes({ tenantId }) {
 
   const registrosVisiveis = registros || [];
   const exibindoTotal = registrosVisiveis.length;
+
+  const renderDetalhe = (registro) => {
+    const produto =
+      registro.sku ||
+      registro.produtoId ||
+      registro.produto ||
+      registro.codigo ||
+      '—';
+    const conta =
+      registro.conta ||
+      registro.deposito ||
+      registro.nomeConta ||
+      registro.contaBlingId ||
+      '—';
+    const origemFmt = getOrigemLabel(registro.origem || registro.tipo || registro.modo);
+    const eventoId = registro.eventoId || registro.evento || registro.idEvento || '—';
+    const depositoOrigem = registro.depositoOrigem || registro.depositoId || registro.depositId || '—';
+    const quantidade = registro.soma ?? registro.quantidade ?? registro.qtd ?? '—';
+    const chaveUnica = registro.chaveUnica || registro.id || '—';
+    const mensagem =
+      registro.mensagem ||
+      registro.resumo ||
+      registro.descricao ||
+      (registro.sucesso === false ? 'Erro ao processar' : 'Processado');
+    const compartilhados = Array.isArray(registro.compartilhadosAtualizados)
+      ? registro.compartilhadosAtualizados
+      : [];
+    const debug = registro.debugInfo || {};
+
+    return (
+      <div>
+        <ListGroup variant="flush" className="mb-2">
+          <ListGroup.Item>
+            <strong>Produto:</strong> {produto}
+          </ListGroup.Item>
+          <ListGroup.Item>
+            <strong>Origem:</strong> {origemFmt}
+          </ListGroup.Item>
+          <ListGroup.Item>
+            <strong>Conta/Depósito:</strong> {conta} | Depósito origem: {depositoOrigem}
+          </ListGroup.Item>
+          <ListGroup.Item>
+            <strong>Quantidade aplicada:</strong> {quantidade}
+          </ListGroup.Item>
+          <ListGroup.Item>
+            <strong>Evento ID:</strong> {eventoId}
+          </ListGroup.Item>
+          <ListGroup.Item>
+            <strong>Chave idempotente:</strong> {chaveUnica}
+          </ListGroup.Item>
+          <ListGroup.Item>
+            <strong>Mensagem:</strong> {mensagem}
+          </ListGroup.Item>
+        </ListGroup>
+        {compartilhados.length > 0 && (
+          <div className="mt-2">
+            <strong>Depósitos compartilhados atualizados_v1:</strong>
+            <ul className="mb-0">
+              {compartilhados.map((item, idx) => (
+                <li key={idx}>
+                  {item.nomeDeposito || item.depositoId || 'Depósito'} — qty {item.quantidade ?? 'n/a'} (base: {item.quantidadeBase ?? 'n/a'}, saldo: {item.saldoAtual ?? 'n/a'}, delta: {item.deltaAplicado ?? 'n/a'})
+                  {item.erro ? ` — erro: ${item.erro}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {debug && (debug.depositosCompartilhados || debug.contasAtivas) && (
+          <div className="mt-2">
+            <strong>Debug:</strong>
+            <ul className="mb-0">
+              {debug.quantidadeParaCompartilhado !== undefined && (
+                <li>Qtd para compartilhados: {debug.quantidadeParaCompartilhado}</li>
+              )}
+              {debug.quantidadeBase !== undefined && (
+                <li>Quantidade base: {debug.quantidadeBase}</li>
+              )}
+              {debug.eventoQuantidade !== undefined && debug.eventoQuantidade !== null && (
+                <li>Quantidade do evento: {debug.eventoQuantidade}</li>
+              )}
+              {debug.eventoSaldoTotal !== undefined && debug.eventoSaldoTotal !== null && (
+                <li>Saldo total (evento): {debug.eventoSaldoTotal}</li>
+              )}
+              {debug.eventoSaldoDeposito !== undefined && debug.eventoSaldoDeposito !== null && (
+                <li>Saldo depósito (evento): {debug.eventoSaldoDeposito}</li>
+              )}
+              {debug.deltaAplicado !== undefined && (
+                <li>Delta aplicado: {debug.deltaAplicado ?? 'n/a'}</li>
+              )}
+              {debug.fonteQuantidade && (
+                <li>Fonte da quantidade: {debug.fonteQuantidade}</li>
+              )}
+              {debug.depositosCompartilhados && debug.depositosCompartilhados.length > 0 && (
+                <li>Depósitos configurados: {debug.depositosCompartilhados.join(', ')}</li>
+              )}
+              {debug.contasAtivas && debug.contasAtivas.length > 0 && (
+                <li>Contas ativas: {debug.contasAtivas.join(', ')}</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Card className="mb-4">
@@ -456,22 +561,7 @@ export default function HistoricoSincronizacoes({ tenantId }) {
                           <Collapse in={detalheAberto === identificador}>
                             <div className="p-3">
                               <strong className="d-block mb-2">Detalhes</strong>
-                              <small className="text-muted">
-                                {registro.mensagem ||
-                                  registro.resumo ||
-                                  registro.descricao ||
-                                  'Sem informações adicionais'}
-                              </small>
-                              <pre
-                                className="mt-2 mb-0 bg-light rounded p-2"
-                                style={{
-                                  maxHeight: '180px',
-                                  overflow: 'auto',
-                                  fontSize: '0.75rem'
-                                }}
-                              >
-                                {JSON.stringify(registro, null, 2)}
-                              </pre>
+                              {renderDetalhe(registro)}
                             </div>
                           </Collapse>
                         </td>

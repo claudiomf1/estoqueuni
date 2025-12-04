@@ -41,12 +41,6 @@ class SincronizadorEstoqueService {
       throw new Error('Configuração de sincronização não encontrada');
     }
 
-    if (!config.isConfigurationComplete()) {
-      throw new Error(
-        'Configuração incompleta. Configure contas e depósitos antes de sincronizar.'
-      );
-    }
-
     const contasAtivas = await this._filtrarContasReaisAtivas(config, tenantId);
     const configObj = config.toObject();
 
@@ -127,13 +121,44 @@ class SincronizadorEstoqueService {
       deltaQuantidade > 0 &&
       !usandoFormulaFornecedorVirtual;
 
+    // Novo comportamento: depósitos compartilhados recebem quantidade priorizando:
+    // quantidade do evento (prioridade máxima) -> saldo total do evento -> saldo depósito do evento -> deltaQuantidade -> total unificado -> soma dos principais
     const quantidadeBase = usandoFormulaFornecedorVirtual ? somaFornecedorVirtual : soma;
-    const quantidadeParaCompartilhado = Math.max(
-      0,
-      quantidadeBase -
-        (aplicarDeltaSaida ? deltaQuantidade : 0) +
-        (aplicarDeltaEntrada ? deltaQuantidade : 0)
-    );
+    const quantidadeUnificadaTotal = Number.isFinite(Number(total)) ? Number(total) : null;
+    const quantidadeEvento = Number.isFinite(Number(options?.eventoDados?.quantidade))
+      ? Number(options.eventoDados.quantidade)
+      : null;
+    const saldoFisicoTotalEvento = Number.isFinite(
+      Number(options?.eventoDados?.saldoFisicoTotal)
+    )
+      ? Number(options.eventoDados.saldoFisicoTotal)
+      : null;
+    const saldoDepositoEvento = Number.isFinite(
+      Number(options?.eventoDados?.saldoDepositoFisico)
+    )
+      ? Number(options.eventoDados.saldoDepositoFisico)
+      : null;
+
+    let quantidadeParaCompartilhado = quantidadeBase;
+    let fonteQuantidade = 'soma_principais';
+    // Prioridades corrigidas: quantidade do evento (prioridade máxima) -> saldo total do evento -> saldo depósito do evento -> deltaQuantidade -> total unificado -> soma principais
+    // A quantidade do evento deve ter prioridade sobre o total unificado quando disponível
+    if (quantidadeEvento !== null) {
+      quantidadeParaCompartilhado = quantidadeEvento;
+      fonteQuantidade = 'quantidade_evento';
+    } else if (saldoFisicoTotalEvento !== null) {
+      quantidadeParaCompartilhado = saldoFisicoTotalEvento;
+      fonteQuantidade = 'saldo_evento';
+    } else if (saldoDepositoEvento !== null) {
+      quantidadeParaCompartilhado = saldoDepositoEvento;
+      fonteQuantidade = 'saldo_deposito_evento';
+    } else if (Number.isFinite(deltaQuantidade) && deltaQuantidade > 0) {
+      quantidadeParaCompartilhado = deltaQuantidade;
+      fonteQuantidade = 'delta_evento';
+    } else if (quantidadeUnificadaTotal !== null) {
+      quantidadeParaCompartilhado = quantidadeUnificadaTotal;
+      fonteQuantidade = 'total_unificado';
+    }
 
     const compartilhadosAtualizados = await this._atualizarDepositosCompartilhados(
       skuResolvido,
@@ -154,6 +179,8 @@ class SincronizadorEstoqueService {
           ? { fornecedor: valorFornecedor, virtual: valorVirtual }
           : null,
         operacaoEstoque,
+        eventoQuantidade: quantidadeEvento,
+        eventoSaldoTotal: saldoFisicoTotalEvento,
       }
     );
     const errosCompartilhados = compartilhadosAtualizados
@@ -180,6 +207,23 @@ class SincronizadorEstoqueService {
       erros: Array.isArray(erros)
         ? [...erros, ...errosCompartilhados]
         : [...errosCompartilhados],
+      debugInfo: {
+        quantidadeParaCompartilhado,
+        quantidadeBase: quantidadeBase,
+        deltaAplicado: null,
+        aplicarDelta: false,
+        operacaoEstoque,
+        depositosCompartilhados: configObj?.regraSincronizacao?.depositosCompartilhados || [],
+        contasAtivas: contasAtivas.map((c) => c.blingAccountId),
+        calcFornecedorVirtual: usandoFormulaFornecedorVirtual
+          ? { fornecedor: valorFornecedor, virtual: valorVirtual }
+          : null,
+        eventoQuantidade: quantidadeEvento,
+        eventoSaldoTotal: saldoFisicoTotalEvento,
+        eventoSaldoDeposito: saldoDepositoEvento,
+        fonteQuantidade,
+        totalUnificado: quantidadeUnificadaTotal,
+      },
       mensagem:
         'Sincronização local concluída. Atualização automática de depósitos será habilitada em breve.',
     };
@@ -393,7 +437,19 @@ class SincronizadorEstoqueService {
     const depositosCompartilhados =
       config?.regraSincronizacao?.depositosCompartilhados || [];
     if (!depositosCompartilhados.length) {
-      return [];
+      return [
+        {
+          depositoId: 'n/a',
+          nomeDeposito: 'Nenhum depósito compartilhado configurado',
+          sucesso: false,
+          erro: 'Nenhum depósito compartilhado configurado',
+          quantidade: quantidadeNormalizada,
+          quantidadeBase: quantidadeNormalizada,
+          saldoAtual: null,
+          deltaAplicado,
+          aplicarDelta,
+        },
+      ];
     }
 
     const contasAtivasSet = new Set(
@@ -453,6 +509,11 @@ class SincronizadorEstoqueService {
           nomeDeposito: depositoId,
           sucesso: false,
           erro: 'Depósito não encontrado na configuração',
+          quantidade: quantidadeNormalizada,
+          quantidadeBase: quantidadeNormalizada,
+          saldoAtual: null,
+          deltaAplicado,
+          aplicarDelta,
         });
         continue;
       }
@@ -469,6 +530,11 @@ class SincronizadorEstoqueService {
           contaBlingId: deposito.contaBlingId,
           sucesso: false,
           erro: 'Conta Bling inativa para este depósito',
+          quantidade: quantidadeNormalizada,
+          quantidadeBase: quantidadeNormalizada,
+          saldoAtual: null,
+          deltaAplicado,
+          aplicarDelta,
         });
         continue;
       }
@@ -484,6 +550,11 @@ class SincronizadorEstoqueService {
           nomeDeposito: deposito.nome || depositoId,
           sucesso: false,
           erro: 'Depósito não possui conta Bling vinculada',
+          quantidade: quantidadeNormalizada,
+          quantidadeBase: quantidadeNormalizada,
+          saldoAtual: null,
+          deltaAplicado,
+          aplicarDelta,
         });
         continue;
       }
@@ -592,6 +663,11 @@ class SincronizadorEstoqueService {
             contaBlingId: deposito.contaBlingId,
             sucesso: true,
             mensagem: 'Depósito já estava na quantidade alvo (idempotente)',
+            quantidade: quantidadeDestino,
+            quantidadeBase: quantidadeNormalizada,
+            saldoAtual: saldoAtualDeposito,
+            deltaAplicado,
+            aplicarDelta,
             retornoBling: null,
           });
           autoUpdateTracker.registrarAtualizacaoAutomatica({
@@ -604,7 +680,14 @@ class SincronizadorEstoqueService {
 
         logWithTimestamp(
           console.log,
-          `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${contaNome} (${deposito.contaBlingId}) com quantidade ${quantidadeDestino} (tenant ${tenantId}, origem ${origem})`
+          `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${contaNome} (${deposito.contaBlingId})` +
+            ` | destino=${quantidadeDestino}` +
+            ` | base=${quantidadeNormalizada}` +
+            ` | saldoAtual=${saldoAtualDeposito ?? 'n/a'}` +
+            ` | deltaAplicado=${deltaAplicado ?? 'n/a'}` +
+            ` | aplicarDelta=${aplicarDelta ? 'sim' : 'não'}` +
+            ` | origem=${origem}` +
+            ` | tenant=${tenantId}`
         );
 
         const retornoApi = await blingService.registrarMovimentacaoEstoque({
@@ -630,6 +713,11 @@ class SincronizadorEstoqueService {
           contaBlingId: deposito.contaBlingId,
           sucesso: true,
           mensagem: 'Depósito atualizado com sucesso',
+          quantidade: quantidadeDestino,
+          quantidadeBase: quantidadeNormalizada,
+          saldoAtual: saldoAtualDeposito,
+          deltaAplicado,
+          aplicarDelta,
           retornoBling: retornoApi,
         });
       } catch (error) {
@@ -638,12 +726,21 @@ class SincronizadorEstoqueService {
           sku,
           error?.message || 'Erro ao atualizar depósito compartilhado'
         );
+        // Garantir que quantidadeDestino está definida mesmo em caso de erro
+        const quantidadeDestinoFinal = typeof quantidadeDestino !== 'undefined' 
+          ? quantidadeDestino 
+          : quantidadeNormalizada;
         resultados.push({
           depositoId: deposito.id,
           nomeDeposito: deposito.nome || deposito.id,
           contaBlingId: deposito.contaBlingId,
           sucesso: false,
           erro: error.message || 'Erro ao atualizar depósito compartilhado',
+          quantidade: quantidadeDestinoFinal,
+          quantidadeBase: quantidadeNormalizada,
+          saldoAtual: saldoAtualDeposito || null,
+          deltaAplicado,
+          aplicarDelta,
         });
       }
     }
@@ -785,6 +882,7 @@ class SincronizadorEstoqueService {
         erro: Array.isArray(resultado.erros) && resultado.erros.length > 0
           ? resultado.erros.join('; ')
           : null,
+        debugInfo: resultado.debugInfo || {},
         resultado,
         processadoEm: getBrazilNow(),
       });

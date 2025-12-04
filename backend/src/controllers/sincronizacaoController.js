@@ -74,6 +74,7 @@ class SincronizacaoController {
       }
 
       const config = await ConfiguracaoSincronizacao.buscarOuCriar(tenantId);
+      await this._sincronizarContasComConfiguracao(tenantId, config);
 
       const totalEventos = await EventoProcessado.countDocuments({ tenantId });
       const totalErros = await EventoProcessado.countDocuments({
@@ -81,7 +82,7 @@ class SincronizacaoController {
         sucesso: false,
       });
 
-      const ativo = config.ativo && config.isConfigurationComplete();
+      const ativo = config.ativo === true;
 
       const response = {
         tenantId,
@@ -537,6 +538,67 @@ class SincronizacaoController {
     }
     const obj = config.toObject({ versionKey: false });
     return obj;
+  }
+
+  /**
+   * Garante que ConfiguracaoSincronizacao.contasBling reflita as contas Bling cadastradas no tenant
+   */
+  async _sincronizarContasComConfiguracao(tenantId, config) {
+    if (!tenantId || !config) return;
+
+    try {
+      const contasBlingDb = await BlingConfig.find({ tenantId }).lean();
+      if (!Array.isArray(contasBlingDb) || contasBlingDb.length === 0) {
+        return;
+      }
+
+      if (!Array.isArray(config.contasBling)) {
+        config.contasBling = [];
+      }
+
+      const mapaExistentes = new Map(
+        config.contasBling
+          .filter((c) => c?.blingAccountId)
+          .map((c) => [c.blingAccountId, c])
+      );
+
+      contasBlingDb.forEach((conta) => {
+        const existing = mapaExistentes.get(conta.blingAccountId);
+        if (existing) {
+          existing.accountName =
+            conta.accountName ||
+            conta.store_name ||
+            existing.accountName ||
+            'Conta Bling';
+          existing.isActive = conta.is_active !== false;
+          if (existing.webhookConfigurado === undefined) {
+            existing.webhookConfigurado = false;
+          }
+        } else {
+          config.contasBling.push({
+            blingAccountId: conta.blingAccountId,
+            accountName:
+              conta.accountName || conta.store_name || 'Conta Bling',
+            isActive: conta.is_active !== false,
+            webhookConfigurado: false,
+            webhookConfiguradoEm: null,
+            depositosPrincipais: [],
+            depositoCompartilhado: null,
+          });
+        }
+      });
+
+      // Ativar config se houver pelo menos uma conta ativa
+      config.ativo = config.contasBling.some(
+        (item) => item && item.isActive !== false
+      );
+
+      await config.save();
+    } catch (error) {
+      console.warn(
+        `[SINCRONIZACAO] Não foi possível sincronizar contas Bling na ConfiguracaoSincronizacao (tenant ${tenantId}): ${error.message}`
+      );
+    }
   }
 
   _montarStatusWebhook(config) {

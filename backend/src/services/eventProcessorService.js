@@ -240,7 +240,7 @@ class EventProcessorService {
 
       // 6. Registrar evento processado
       try {
-        await EventoProcessado.create({
+        const dadosEvento = {
           tenantId: tenantIdFinal,
           blingAccountId: evento.blingAccountId || null,
           produtoId: evento.produtoId,
@@ -251,7 +251,42 @@ class EventProcessorService {
           sucesso,
           erro: erro || null,
           processadoEm: getBrazilNow(),
-        });
+        };
+
+        // Adicionar dados da sincronização se disponíveis
+        if (resultadoSincronizacao) {
+          dadosEvento.sku = resultadoSincronizacao.produtoId || evento.produtoId;
+          dadosEvento.saldos = resultadoSincronizacao.saldosArray || [];
+          dadosEvento.soma = resultadoSincronizacao.soma || 0;
+          dadosEvento.compartilhadosAtualizados = resultadoSincronizacao.compartilhadosAtualizados || [];
+          dadosEvento.debugInfo = resultadoSincronizacao.debugInfo || null;
+          dadosEvento.resultado = resultadoSincronizacao;
+          
+          // Log para debug
+          if (dadosEvento.compartilhadosAtualizados && dadosEvento.compartilhadosAtualizados.length > 0) {
+            console.log(
+              `[EVENT-PROCESSOR] 📊 Salvando compartilhadosAtualizados:`,
+              JSON.stringify(dadosEvento.compartilhadosAtualizados.map(c => ({
+                depositoId: c.depositoId,
+                nomeDeposito: c.nomeDeposito,
+                quantidade: c.quantidade,
+                quantidadeBase: c.quantidadeBase,
+                saldoAtual: c.saldoAtual,
+                deltaAplicado: c.deltaAplicado,
+              })), null, 2)
+            );
+          } else {
+            console.log(
+              `[EVENT-PROCESSOR] ⚠️ compartilhadosAtualizados está vazio ou não existe no resultadoSincronizacao`
+            );
+          }
+        } else {
+          console.log(
+            `[EVENT-PROCESSOR] ⚠️ resultadoSincronizacao é null, não salvando dados de sincronização`
+          );
+        }
+
+        await EventoProcessado.create(dadosEvento);
 
         console.log(
           `[EVENT-PROCESSOR] 📝 Evento registrado - Chave: ${chaveUnica}, Sucesso: ${sucesso}`

@@ -19,19 +19,19 @@ services:
     # Sem volumes em prod (usa apenas imagem buildada)
     # Sem portas expostas (acesso apenas via nginx-proxy)
 
-  # Backend AI - Prod
-  estoqueuni-backend-ai:
-    environment:
-      - NODE_ENV=production
-      - CORS_ORIGIN=${CORS_ORIGIN_PROD:-https://estoqueuni.com.br}
-      # Em produção, usar banco remoto por padrão
-      - ESTOQUEUNI_DB_TIPO=${ESTOQUEUNI_DB_TIPO:-1}
-      # Em produção, tentar usar serviços reais (Redis, Qdrant) se disponíveis
-      # Se não disponíveis, usa mocks (configurar via .env se necessário)
-      - ESTOQUEUNI_SKIP_EXTERNALS=${ESTOQUEUNI_SKIP_EXTERNALS:-false}
-    restart: always
-    # Sem volumes em prod
-    # Sem portas expostas
+  # Backend AI - Prod (desativado temporariamente)
+  # estoqueuni-backend-ai:
+  #   environment:
+  #     - NODE_ENV=production
+  #     - CORS_ORIGIN=${CORS_ORIGIN_PROD:-https://estoqueuni.com.br}
+  #     # Em produção, usar banco remoto por padrão
+  #     - ESTOQUEUNI_DB_TIPO=${ESTOQUEUNI_DB_TIPO:-1}
+  #     # Em produção, tentar usar serviços reais (Redis, Qdrant) se disponíveis
+  #     # Se não disponíveis, usa mocks (configurar via .env se necessário)
+  #     - ESTOQUEUNI_SKIP_EXTERNALS=${ESTOQUEUNI_SKIP_EXTERNALS:-false}
+  #   restart: always
+  #   # Sem volumes em prod
+  #   # Sem portas expostas
 
   # Frontend - Prod
   estoqueuni-frontend:
@@ -53,4 +53,3 @@ services:
   redis:
     restart: always
     # Persistência já configurada no base
-
