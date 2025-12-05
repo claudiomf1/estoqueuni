@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import app from './app.js';
+import { config } from './config/index.js';
 import { conectarMongoDB } from './config/database.js';
 import { iniciarWorker } from './jobs/processarEvento.js';
 
-const PORT = process.env.PORT || 5000;
+const PORT = config.port;
 
 /**
  * Inicia o servidor
@@ -29,9 +30,9 @@ async function iniciarServidor() {
     }
 
     // Iniciar servidor Express
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Servidor rodando na porta ${PORT}`);
-      console.log(`   Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`   Ambiente: ${config.env}`);
       console.log(`   Health check: http://localhost:${PORT}/health`);
     });
   } catch (error) {

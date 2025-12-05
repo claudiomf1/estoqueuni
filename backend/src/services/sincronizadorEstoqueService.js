@@ -73,8 +73,15 @@ class SincronizadorEstoqueService {
     );
 
     const contasPermitidas = contasAtivas.map((c) => c.blingAccountId);
+    // Mapear operacaoEstoque do evento para tipoOperacaoEstoque
+    // 'E' = entrada, 'S' = saída, 'B' = balanço
+    const operacaoEstoqueRaw = options?.eventoDados?.operacaoEstoque || options?.eventoDados?.tipoOperacaoEstoque;
+    const operacaoEstoqueMapeada = operacaoEstoqueRaw === 'E' ? 'entrada' 
+      : operacaoEstoqueRaw === 'S' ? 'saida' 
+      : operacaoEstoqueRaw === 'B' ? 'balanco'
+      : null;
     const operacaoEstoque =
-      options?.eventoDados?.tipoOperacaoEstoque ||
+      operacaoEstoqueMapeada ||
       (options?.origemEvento === 'venda'
         ? 'saida'
         : options?.origemEvento === 'venda_removida'
@@ -102,24 +109,13 @@ class SincronizadorEstoqueService {
     );
     const soma = this.calcularSoma(saldosArray);
 
-    // Novo cálculo: compartilhado = fornecedor + virtual (quando existir nos depósitos principais)
-    const valorFornecedor = saldosArray
-      .filter((s) => /fornecedor/i.test(s.nomeDeposito || s.depositoId || ''))
-      .reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
-    const valorVirtual = saldosArray
-      .filter((s) => /virtual/i.test(s.nomeDeposito || s.depositoId || ''))
-      .reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
-    const somaFornecedorVirtual = valorFornecedor + valorVirtual;
-    const usandoFormulaFornecedorVirtual = somaFornecedorVirtual > 0;
-    if (usandoFormulaFornecedorVirtual) {
-      logWithTimestamp(
-        console.log,
-        `[SINCRONIZADOR] 🧮 Cálculo compartilhado (fornecedor + virtual): fornecedor=${valorFornecedor}, virtual=${valorVirtual}, total=${somaFornecedorVirtual}`
-      );
-    }
-
     const deltaQuantidade = Number(options?.deltaQuantidade);
     const deltaQuantidadeValida = Number.isFinite(deltaQuantidade);
+    
+    // Identificar se é evento de estoque (não venda)
+    // Eventos de estoque: tipo === 'estoque' e ajustarCompartilhadoPorVenda === false
+    const ehEventoEstoque = options?.origemEvento === 'estoque' && !ajustarCompartilhadoPorVenda;
+    
     const aplicarAbatimentoCompartilhados =
       ajustarCompartilhadoPorVenda &&
       operacaoEstoque === 'saida' &&
@@ -128,17 +124,15 @@ class SincronizadorEstoqueService {
     const aplicarDeltaSaida =
       operacaoEstoque === 'saida' &&
       deltaQuantidadeValida &&
-      deltaQuantidade > 0 &&
-      !usandoFormulaFornecedorVirtual;
+      deltaQuantidade > 0;
     const aplicarDeltaEntrada =
       operacaoEstoque === 'entrada' &&
       deltaQuantidadeValida &&
-      deltaQuantidade > 0 &&
-      !usandoFormulaFornecedorVirtual;
+      deltaQuantidade > 0;
 
     // Novo comportamento: depósitos compartilhados recebem quantidade priorizando:
     // quantidade do evento (prioridade máxima) -> saldo total do evento -> saldo depósito do evento -> deltaQuantidade -> total unificado -> soma dos principais
-    const quantidadeBase = usandoFormulaFornecedorVirtual ? somaFornecedorVirtual : soma;
+    const quantidadeBase = soma;
     const quantidadeUnificadaTotal = Number.isFinite(Number(total)) ? Number(total) : null;
     const quantidadeEvento = Number.isFinite(Number(options?.eventoDados?.quantidade))
       ? Number(options.eventoDados.quantidade)
@@ -157,19 +151,9 @@ class SincronizadorEstoqueService {
     let quantidadeParaCompartilhado = quantidadeBase;
     let fonteQuantidade = 'soma_principais';
     
-    // IMPORTANTE: Para vendas, o total unificado já reflete o estoque APÓS a venda
-    // A quantidade do evento é apenas o delta (quantidade vendida), não o saldo total
-    // Para compartilhados, precisamos do saldo total atualizado, não do delta
-    // Por isso, para vendas/entradas, priorizamos saldo total do evento ou total unificado
+    // LÓGICA DIFERENCIADA: VENDAS vs ESTOQUE
     
-    // Prioridades:
-    // 1. Saldo total do evento (se disponível) - reflete o estado após a operação
-    // 2. Saldo do depósito do evento (se disponível) - reflete o estado após a operação
-    // 3. Total unificado (para vendas/entradas, já reflete o estado após a operação)
-    // 4. Quantidade do evento (apenas se não for venda/entrada, pois é o delta, não o saldo total)
-    // 5. Delta quantidade (fallback)
-    // 6. Soma dos principais (fallback final)
-    
+    // Para VENDAS (order.created): usar lógica complexa com abatimento
     if (aplicarAbatimentoCompartilhados) {
       quantidadeParaCompartilhado = deltaQuantidade;
       fonteQuantidade = 'delta_venda_order_created';
@@ -177,23 +161,51 @@ class SincronizadorEstoqueService {
         console.log,
         `[SINCRONIZADOR] ➖ order.created detectado: abatendo ${deltaQuantidade} do estoque dos depósitos compartilhados antes do cálculo padrão`
       );
-    } else if (saldoFisicoTotalEvento !== null) {
-      quantidadeParaCompartilhado = saldoFisicoTotalEvento;
-      fonteQuantidade = 'saldo_evento';
-    } else if (saldoDepositoEvento !== null) {
-      quantidadeParaCompartilhado = saldoDepositoEvento;
-      fonteQuantidade = 'saldo_deposito_evento';
-    } else if (quantidadeUnificadaTotal !== null) {
-      // Para vendas/entradas, o total unificado já reflete o estado após a operação
-      quantidadeParaCompartilhado = quantidadeUnificadaTotal;
-      fonteQuantidade = 'total_unificado';
-    } else if (quantidadeEvento !== null && operacaoEstoque === null) {
-      // Apenas usar quantidade do evento se NÃO for venda/entrada (pois é o delta, não o saldo total)
-      quantidadeParaCompartilhado = quantidadeEvento;
-      fonteQuantidade = 'quantidade_evento';
-    } else if (deltaQuantidadeValida && deltaQuantidade > 0) {
-      quantidadeParaCompartilhado = deltaQuantidade;
-      fonteQuantidade = 'delta_evento';
+    }
+    // Para EVENTOS DE ESTOQUE (entrada/saída manual): usar lógica simples - apenas soma dos principais
+    else if (ehEventoEstoque) {
+      // Para eventos de estoque, usar apenas a soma dos principais (como no commit 7b553b0)
+      // O estoque unificado já foi atualizado pelo Bling, então a soma dos principais reflete o estado atual
+      quantidadeParaCompartilhado = quantidadeBase;
+      fonteQuantidade = 'soma_principais';
+      logWithTimestamp(
+        console.log,
+        `[SINCRONIZADOR] 📦 Evento de estoque detectado: usando soma dos principais (${quantidadeParaCompartilhado}) para atualizar depósitos compartilhados`
+      );
+    }
+    // Para OUTROS CASOS (vendas sem order.created, etc): manter lógica atual
+    else {
+      // IMPORTANTE: Para vendas, o total unificado já reflete o estoque APÓS a venda
+      // A quantidade do evento é apenas o delta (quantidade vendida), não o saldo total
+      // Para compartilhados, precisamos do saldo total atualizado, não do delta
+      // Por isso, para vendas/entradas, priorizamos saldo total do evento ou total unificado
+      
+      // Prioridades:
+      // 1. Saldo total do evento (se disponível) - reflete o estado após a operação
+      // 2. Saldo do depósito do evento (se disponível) - reflete o estado após a operação
+      // 3. Total unificado (para vendas/entradas, já reflete o estado após a operação)
+      // 4. Quantidade do evento (apenas se não for venda/entrada, pois é o delta, não o saldo total)
+      // 5. Delta quantidade (fallback)
+      // 6. Soma dos principais (fallback final)
+      
+      if (saldoFisicoTotalEvento !== null) {
+        quantidadeParaCompartilhado = saldoFisicoTotalEvento;
+        fonteQuantidade = 'saldo_evento';
+      } else if (saldoDepositoEvento !== null) {
+        quantidadeParaCompartilhado = saldoDepositoEvento;
+        fonteQuantidade = 'saldo_deposito_evento';
+      } else if (quantidadeUnificadaTotal !== null) {
+        // Para vendas/entradas, o total unificado já reflete o estado após a operação
+        quantidadeParaCompartilhado = quantidadeUnificadaTotal;
+        fonteQuantidade = 'total_unificado';
+      } else if (quantidadeEvento !== null && operacaoEstoque === null) {
+        // Apenas usar quantidade do evento se NÃO for venda/entrada (pois é o delta, não o saldo total)
+        quantidadeParaCompartilhado = quantidadeEvento;
+        fonteQuantidade = 'quantidade_evento';
+      } else if (deltaQuantidadeValida && deltaQuantidade > 0) {
+        quantidadeParaCompartilhado = deltaQuantidade;
+        fonteQuantidade = 'delta_evento';
+      }
     }
     
     // Log detalhado para debug
@@ -212,20 +224,18 @@ class SincronizadorEstoqueService {
       produtoDetalhes,
       {
         deltaAplicado:
-          (aplicarDeltaSaida || aplicarDeltaEntrada) && !usandoFormulaFornecedorVirtual
+          (aplicarDeltaSaida || aplicarDeltaEntrada) && !ehEventoEstoque
             ? deltaQuantidade
             : null,
         somaOriginal: soma,
-        modoAbater: aplicarAbatimentoCompartilhados,
-        quantidadeAbater: aplicarAbatimentoCompartilhados ? deltaQuantidade : null,
+        modoAbater: aplicarAbatimentoCompartilhados && !ehEventoEstoque,
+        quantidadeAbater: aplicarAbatimentoCompartilhados && !ehEventoEstoque ? deltaQuantidade : null,
         fonteQuantidade,
-        aplicarDelta: (aplicarDeltaSaida || aplicarDeltaEntrada) && !usandoFormulaFornecedorVirtual,
-        calcFornecedorVirtual: usandoFormulaFornecedorVirtual
-          ? { fornecedor: valorFornecedor, virtual: valorVirtual }
-          : null,
+        aplicarDelta: (aplicarDeltaSaida || aplicarDeltaEntrada) && !ehEventoEstoque,
         operacaoEstoque,
         eventoQuantidade: quantidadeEvento,
         eventoSaldoTotal: saldoFisicoTotalEvento,
+        ehEventoEstoque, // Passar flag para identificar evento de estoque
       }
     );
     const errosCompartilhados = compartilhadosAtualizados
@@ -260,9 +270,6 @@ class SincronizadorEstoqueService {
         operacaoEstoque,
         depositosCompartilhados: configObj?.regraSincronizacao?.depositosCompartilhados || [],
         contasAtivas: contasAtivas.map((c) => c.blingAccountId),
-        calcFornecedorVirtual: usandoFormulaFornecedorVirtual
-          ? { fornecedor: valorFornecedor, virtual: valorVirtual }
-          : null,
         eventoQuantidade: quantidadeEvento,
         eventoSaldoTotal: saldoFisicoTotalEvento,
         eventoSaldoDeposito: saldoDepositoEvento,
@@ -539,16 +546,24 @@ class SincronizadorEstoqueService {
     const produtoCache = new Map(produtoDetalhesCache);
     const resultados = [];
 
-    if (deltaAplicado !== null && aplicarDelta) {
+    const ehEventoEstoque = opcoesExtras?.ehEventoEstoque === true;
+    
+    if (deltaAplicado !== null && aplicarDelta && !ehEventoEstoque) {
       logWithTimestamp(
         console.log,
         `[SINCRONIZADOR] ⚙️ Ajuste por venda - quantidade original somada: ${opcoesExtras?.somaOriginal ?? quantidadeNormalizada}, delta aplicado: ${deltaAplicado}, quantidade final para depósitos compartilhados: ${quantidadeNormalizada}`
       );
     }
-    if (abaterNosCompartilhados && quantidadeParaAbater !== null) {
+    if (abaterNosCompartilhados && quantidadeParaAbater !== null && !ehEventoEstoque) {
       logWithTimestamp(
         console.log,
         `[SINCRONIZADOR] ➖ Abatimento em depósitos compartilhados ativado via webhook order.created | quantidadeParaAbater=${quantidadeParaAbater} | fonte=${fonteQuantidadeCompartilhado}`
+      );
+    }
+    if (ehEventoEstoque) {
+      logWithTimestamp(
+        console.log,
+        `[SINCRONIZADOR] 📦 Evento de estoque: atualizando depósitos compartilhados com quantidade ${quantidadeNormalizada} (soma dos principais)`
       );
     }
 
@@ -697,7 +712,8 @@ class SincronizadorEstoqueService {
           }
         }
 
-        if (abaterNosCompartilhados && quantidadeParaAbater !== null) {
+        // Aplicar abatimento apenas para vendas (order.created), não para eventos de estoque
+        if (abaterNosCompartilhados && quantidadeParaAbater !== null && !ehEventoEstoque) {
           const saldoBaseParaAbater = Number.isFinite(Number(saldoAtualDeposito))
             ? Number(saldoAtualDeposito)
             : Number.isFinite(Number(opcoesExtras?.somaOriginal))
