@@ -209,3 +209,4 @@ ssh Linode_dallas "cd /home/claudio/semtypescript/apps/estoqueuni && docker comp
 
 
 
+

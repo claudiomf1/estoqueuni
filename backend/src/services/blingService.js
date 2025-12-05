@@ -609,8 +609,9 @@ class BlingService {
         const saldoVirtual = Number(registro.saldoVirtualTotal || 0);
         
         // Se for para usar saldoVirtual (ex: pedidos de venda), priorizar saldoVirtual
-        if (options.usarSaldoVirtual && saldoVirtual !== null && saldoVirtual !== undefined) {
-          return saldoVirtual;
+        // Garantir que retorna 0 em vez de null (null quebra a soma)
+        if (options.usarSaldoVirtual) {
+          return Number(saldoVirtual) || 0;
         }
         
         // Log detalhado para debug (primeira vez ou quando houver reservado)
@@ -626,6 +627,7 @@ class BlingService {
         
         // Estratégia: usar saldoFisicoTotal quando disponível (já inclui reservado)
         // Se não tiver saldoFisicoTotal, calcular: saldoVirtualTotal + reservado
+        // Garantir que retorna 0 em vez de null (null quebra a soma)
         let saldoFinal = 0;
         
         if (saldoFisico > 0) {
@@ -641,7 +643,7 @@ class BlingService {
           }
         }
 
-        return saldoFinal;
+        return Number(saldoFinal) || 0;
       } catch (error) {
         if (error.response?.status === 429 && tentativa < 3) {
           const retryAfter =

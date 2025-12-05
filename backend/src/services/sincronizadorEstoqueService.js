@@ -89,8 +89,13 @@ class SincronizadorEstoqueService {
           : null);
     const ajustarCompartilhadoPorVenda = options?.eventoDados?.ajustarCompartilhadoPorVenda === true;
 
-    // Para vendas, usar saldoVirtual (como nos JSONs do Make)
-    const usarSaldoVirtual = operacaoEstoque === 'saida' || operacaoEstoque === 'entrada';
+    // Identificar se é evento de estoque (não venda) - precisa estar aqui para usar abaixo
+    // Eventos de estoque: tipo === 'estoque' e ajustarCompartilhadoPorVenda === false
+    const ehEventoEstoque = options?.origemEvento === 'estoque' && !ajustarCompartilhadoPorVenda;
+
+    // Sempre usar saldoVirtual para operações de estoque (entrada/saída manual e vendas)
+    // Isso garante consistência com a fórmula do Make que usa saldoVirtual
+    const usarSaldoVirtual = true;
     
     const { total, estoquePorConta, erros, detalhesPorConta } =
       await blingEstoqueUnificadoService.buscarEstoqueUnificado(
@@ -112,10 +117,6 @@ class SincronizadorEstoqueService {
     const deltaQuantidade = Number(options?.deltaQuantidade);
     const deltaQuantidadeValida = Number.isFinite(deltaQuantidade);
     
-    // Identificar se é evento de estoque (não venda)
-    // Eventos de estoque: tipo === 'estoque' e ajustarCompartilhadoPorVenda === false
-    const ehEventoEstoque = options?.origemEvento === 'estoque' && !ajustarCompartilhadoPorVenda;
-    
     const aplicarAbatimentoCompartilhados =
       ajustarCompartilhadoPorVenda &&
       operacaoEstoque === 'saida' &&
@@ -131,16 +132,31 @@ class SincronizadorEstoqueService {
       deltaQuantidade > 0;
 
     // Novo comportamento: depósitos compartilhados recebem quantidade priorizando:
-    // quantidade do evento (prioridade máxima) -> saldo total do evento -> saldo depósito do evento -> deltaQuantidade -> total unificado -> soma dos principais
+    // saldoVirtualTotal do evento (prioridade máxima, consistente com busca) -> saldoFisicoTotal (fallback) -> 
+    // saldoDepositoVirtual -> saldoDepositoFisico -> total unificado -> soma dos principais
     const quantidadeBase = soma;
     const quantidadeUnificadaTotal = Number.isFinite(Number(total)) ? Number(total) : null;
     const quantidadeEvento = Number.isFinite(Number(options?.eventoDados?.quantidade))
       ? Number(options.eventoDados.quantidade)
       : null;
+    
+    // Priorizar saldoVirtualTotal (consistente com busca que usa saldoVirtual)
+    const saldoVirtualTotalEvento = Number.isFinite(
+      Number(options?.eventoDados?.saldoVirtualTotal)
+    )
+      ? Number(options.eventoDados.saldoVirtualTotal)
+      : null;
     const saldoFisicoTotalEvento = Number.isFinite(
       Number(options?.eventoDados?.saldoFisicoTotal)
     )
       ? Number(options.eventoDados.saldoFisicoTotal)
+      : null;
+    
+    // Priorizar saldoDepositoVirtual (consistente com busca que usa saldoVirtual)
+    const saldoDepositoVirtualEvento = Number.isFinite(
+      Number(options?.eventoDados?.saldoDepositoVirtual)
+    )
+      ? Number(options.eventoDados.saldoDepositoVirtual)
       : null;
     const saldoDepositoEvento = Number.isFinite(
       Number(options?.eventoDados?.saldoDepositoFisico)
@@ -162,10 +178,11 @@ class SincronizadorEstoqueService {
         `[SINCRONIZADOR] ➖ order.created detectado: abatendo ${deltaQuantidade} do estoque dos depósitos compartilhados antes do cálculo padrão`
       );
     }
-    // Para EVENTOS DE ESTOQUE (entrada/saída manual): usar lógica simples - apenas soma dos principais
+    // Para EVENTOS DE ESTOQUE (entrada/saída manual): usar lógica simples - SEMPRE soma dos principais
+    // IMPORTANTE: A busca do saldo atual do depósito principal (feita acima) atualiza o array,
+    // mas SEMPRE usamos a SOMA de todos os principais para atualizar os compartilhados
     else if (ehEventoEstoque) {
-      // Para eventos de estoque, usar apenas a soma dos principais (como no commit 7b553b0)
-      // O estoque unificado já foi atualizado pelo Bling, então a soma dos principais reflete o estado atual
+      // SEMPRE usar soma dos principais (já foi atualizada acima se o evento foi em depósito principal)
       quantidadeParaCompartilhado = quantidadeBase;
       fonteQuantidade = 'soma_principais';
       logWithTimestamp(
@@ -174,28 +191,37 @@ class SincronizadorEstoqueService {
       );
     }
     // Para OUTROS CASOS (vendas sem order.created, etc): manter lógica atual
+    // NOTA: Esta lógica NÃO se aplica a eventos de estoque (que são tratados acima)
     else {
       // IMPORTANTE: Para vendas, o total unificado já reflete o estoque APÓS a venda
       // A quantidade do evento é apenas o delta (quantidade vendida), não o saldo total
       // Para compartilhados, precisamos do saldo total atualizado, não do delta
       // Por isso, para vendas/entradas, priorizamos saldo total do evento ou total unificado
       
-      // Prioridades:
-      // 1. Saldo total do evento (se disponível) - reflete o estado após a operação
-      // 2. Saldo do depósito do evento (se disponível) - reflete o estado após a operação
-      // 3. Total unificado (para vendas/entradas, já reflete o estado após a operação)
-      // 4. Quantidade do evento (apenas se não for venda/entrada, pois é o delta, não o saldo total)
-      // 5. Delta quantidade (fallback)
-      // 6. Soma dos principais (fallback final)
+      // Prioridades (ajustadas para priorizar saldoVirtual, consistente com busca):
+      // 1. saldoVirtualTotalEvento (prioridade máxima - consistente com busca que usa saldoVirtual)
+      // 2. saldoFisicoTotalEvento (fallback para compatibilidade)
+      // 3. saldoDepositoVirtualEvento (consistente com busca)
+      // 4. saldoDepositoFisicoEvento (fallback)
+      // 5. Total unificado (para vendas/entradas, já reflete o estado após a operação, usa saldoVirtual)
+      // 6. Quantidade do evento (apenas se não for venda/entrada, pois é o delta, não o saldo total)
+      // 7. Delta quantidade (fallback)
+      // 8. Soma dos principais (fallback final, usa saldoVirtual)
       
-      if (saldoFisicoTotalEvento !== null) {
+      if (saldoVirtualTotalEvento !== null) {
+        quantidadeParaCompartilhado = saldoVirtualTotalEvento;
+        fonteQuantidade = 'saldo_virtual_evento';
+      } else if (saldoFisicoTotalEvento !== null) {
         quantidadeParaCompartilhado = saldoFisicoTotalEvento;
-        fonteQuantidade = 'saldo_evento';
+        fonteQuantidade = 'saldo_fisico_evento';
+      } else if (saldoDepositoVirtualEvento !== null) {
+        quantidadeParaCompartilhado = saldoDepositoVirtualEvento;
+        fonteQuantidade = 'saldo_deposito_virtual_evento';
       } else if (saldoDepositoEvento !== null) {
         quantidadeParaCompartilhado = saldoDepositoEvento;
-        fonteQuantidade = 'saldo_deposito_evento';
+        fonteQuantidade = 'saldo_deposito_fisico_evento';
       } else if (quantidadeUnificadaTotal !== null) {
-        // Para vendas/entradas, o total unificado já reflete o estado após a operação
+        // Para vendas/entradas, o total unificado já reflete o estado após a operação (usa saldoVirtual)
         quantidadeParaCompartilhado = quantidadeUnificadaTotal;
         fonteQuantidade = 'total_unificado';
       } else if (quantidadeEvento !== null && operacaoEstoque === null) {
@@ -211,7 +237,7 @@ class SincronizadorEstoqueService {
     // Log detalhado para debug
     logWithTimestamp(
       console.log,
-      `[SINCRONIZADOR] 📊 Cálculo quantidadeParaCompartilhado: ${quantidadeParaCompartilhado} (fonte: ${fonteQuantidade}) | quantidadeEvento: ${quantidadeEvento} | deltaQuantidade: ${deltaQuantidade} | operacaoEstoque: ${operacaoEstoque} | totalUnificado: ${quantidadeUnificadaTotal} | saldoFisicoTotal: ${saldoFisicoTotalEvento}`
+      `[SINCRONIZADOR] 📊 Cálculo quantidadeParaCompartilhado: ${quantidadeParaCompartilhado} (fonte: ${fonteQuantidade}) | quantidadeEvento: ${quantidadeEvento} | deltaQuantidade: ${deltaQuantidade} | operacaoEstoque: ${operacaoEstoque} | totalUnificado: ${quantidadeUnificadaTotal} | saldoVirtualTotal: ${saldoVirtualTotalEvento} | saldoFisicoTotal: ${saldoFisicoTotalEvento} | saldoDepositoVirtual: ${saldoDepositoVirtualEvento} | saldoDepositoFisico: ${saldoDepositoEvento}`
     );
 
     const compartilhadosAtualizados = await this._atualizarDepositosCompartilhados(
@@ -234,7 +260,10 @@ class SincronizadorEstoqueService {
         aplicarDelta: (aplicarDeltaSaida || aplicarDeltaEntrada) && !ehEventoEstoque,
         operacaoEstoque,
         eventoQuantidade: quantidadeEvento,
+        eventoSaldoVirtualTotal: saldoVirtualTotalEvento,
         eventoSaldoTotal: saldoFisicoTotalEvento,
+        eventoSaldoDepositoVirtual: saldoDepositoVirtualEvento,
+        eventoSaldoDepositoFisico: saldoDepositoEvento,
         ehEventoEstoque, // Passar flag para identificar evento de estoque
       }
     );
@@ -271,7 +300,9 @@ class SincronizadorEstoqueService {
         depositosCompartilhados: configObj?.regraSincronizacao?.depositosCompartilhados || [],
         contasAtivas: contasAtivas.map((c) => c.blingAccountId),
         eventoQuantidade: quantidadeEvento,
+        eventoSaldoVirtualTotal: saldoVirtualTotalEvento,
         eventoSaldoTotal: saldoFisicoTotalEvento,
+        eventoSaldoDepositoVirtual: saldoDepositoVirtualEvento,
         eventoSaldoDeposito: saldoDepositoEvento,
         fonteQuantidade,
         totalUnificado: quantidadeUnificadaTotal,
@@ -328,7 +359,7 @@ class SincronizadorEstoqueService {
     }
     return produtoId;
   }
-
+ 
   calcularSoma(saldos) {
     return saldos.reduce((acc, saldo) => acc + (Number(saldo.valor) || 0), 0);
   }
@@ -439,21 +470,24 @@ class SincronizadorEstoqueService {
     }
 
     if (typeof contaDetalhes === 'number') {
-      return contaDetalhes;
+      // Garantir que retorna 0 em vez de null/NaN
+      return Number(contaDetalhes) || 0;
     }
 
     if (typeof contaDetalhes === 'object') {
       if (contaDetalhes.monitorados && depositoId) {
         const chave = String(depositoId);
         if (Object.prototype.hasOwnProperty.call(contaDetalhes.monitorados, chave)) {
-          return contaDetalhes.monitorados[chave];
+          // Garantir que retorna 0 em vez de null (null quebra a soma)
+          return Number(contaDetalhes.monitorados[chave]) || 0;
         }
       }
 
       if (contaDetalhes.depositos && depositoId) {
         const chave = String(depositoId);
         if (Object.prototype.hasOwnProperty.call(contaDetalhes.depositos, chave)) {
-          return contaDetalhes.depositos[chave];
+          // Garantir que retorna 0 em vez de null (null quebra a soma)
+          return Number(contaDetalhes.depositos[chave]) || 0;
         }
       }
 
@@ -462,7 +496,7 @@ class SincronizadorEstoqueService {
           console.warn,
           `[SINCRONIZADOR] ⚠️ Depósito ${depositoId} não encontrado na conta ${contaId}. Utilizando total da conta (${contaDetalhes.total}).`
         );
-        return contaDetalhes.total;
+        return Number(contaDetalhes.total) || 0;
       }
     }
 
@@ -686,22 +720,38 @@ class SincronizadorEstoqueService {
         
         // Buscar saldo atual para idempotência (verificar se já está no valor desejado)
 
-        // Buscar saldo atual se ainda não foi obtido (para idempotência)
-        // Para vendas/entradas, usar saldoVirtual (como nos JSONs do Make)
-        const usarSaldoVirtualParaIdempotencia = opcoesExtras?.operacaoEstoque === 'saida' || opcoesExtras?.operacaoEstoque === 'entrada';
+        // Buscar saldo atual se ainda não foi obtido (para idempotência e preservar reservado)
+        // IMPORTANTE: Para preservar reservado, precisamos buscar tanto saldoVirtual quanto saldoFisico
+        const usarSaldoVirtualParaIdempotencia = true;
+        let saldoFisicoAtualDeposito = null;
+        let saldoVirtualAtualDeposito = null;
+        
         if (saldoAtualDeposito === null) {
           try {
-            saldoAtualDeposito = await blingService.getSaldoProdutoPorDeposito(
+            // Buscar saldoVirtual (para comparação com quantidadeDestino)
+            saldoVirtualAtualDeposito = await blingService.getSaldoProdutoPorDeposito(
               produtoInfo.id,
               deposito.id,
               tenantId,
               deposito.contaBlingId,
-              { usarSaldoVirtual: usarSaldoVirtualParaIdempotencia }
+              { usarSaldoVirtual: true }
             );
+            
+            // Buscar saldoFisico (para preservar reservado ao atualizar)
+            saldoFisicoAtualDeposito = await blingService.getSaldoProdutoPorDeposito(
+              produtoInfo.id,
+              deposito.id,
+              tenantId,
+              deposito.contaBlingId,
+              { usarSaldoVirtual: false }
+            );
+            
+            saldoAtualDeposito = saldoVirtualAtualDeposito; // Usar virtual para comparação
+            
             if (abaterNosCompartilhados) {
               logWithTimestamp(
                 console.log,
-                `[SINCRONIZADOR] 📥 Saldo atual retornado pelo Bling para depósito ${deposito.id} (conta ${contaNome}): ${saldoAtualDeposito}`
+                `[SINCRONIZADOR] 📥 Saldo atual retornado pelo Bling para depósito ${deposito.id} (conta ${contaNome}): virtual=${saldoVirtualAtualDeposito}, físico=${saldoFisicoAtualDeposito}`
               );
             }
           } catch (errorSaldo) {
@@ -727,14 +777,15 @@ class SincronizadorEstoqueService {
         }
 
         // Se já está no valor desejado, evita movimentação e loga
-        const saldoAtualComparacao =
-          saldoAtualDeposito !== null && saldoAtualDeposito !== undefined
-            ? Number(saldoAtualDeposito)
-            : null;
-        if (saldoAtualComparacao !== null && saldoAtualComparacao === Number(quantidadeDestino)) {
+        // IMPORTANTE: Comparar com saldoVirtual porque quantidadeDestino é o saldoVirtual desejado
+        const saldoVirtualParaComparacao = saldoVirtualAtualDeposito !== null 
+          ? Number(saldoVirtualAtualDeposito)
+          : (saldoAtualDeposito !== null ? Number(saldoAtualDeposito) : null);
+        
+        if (saldoVirtualParaComparacao !== null && saldoVirtualParaComparacao === Number(quantidadeDestino)) {
           logWithTimestamp(
             console.log,
-            `[SINCRONIZADOR] ⏭️ Depósito ${deposito.id} já está na quantidade alvo (${quantidadeDestino}). Pulando movimentação.`
+            `[SINCRONIZADOR] ⏭️ Depósito ${deposito.id} já está na quantidade alvo (virtual=${quantidadeDestino}, físico=${saldoFisicoAtualDeposito ?? 'n/a'}). Pulando movimentação.`
           );
           resultados.push({
             depositoId: deposito.id,
@@ -757,12 +808,43 @@ class SincronizadorEstoqueService {
           continue;
         }
 
+        // IMPORTANTE: Preservar reservado ao atualizar depósito compartilhado
+        // quantidadeDestino é o saldoVirtual desejado (vem dos principais)
+        // Precisamos calcular o saldoFisico final preservando o reservado existente
+        let quantidadeFinalParaAtualizacao = quantidadeDestino;
+        
+        if (saldoVirtualAtualDeposito !== null && saldoFisicoAtualDeposito !== null) {
+          // Calcular delta no virtual: quantidadeDestino - saldoVirtualAtual
+          const deltaVirtual = quantidadeDestino - Number(saldoVirtualAtualDeposito);
+          
+          // Calcular saldoFisico final: saldoFisicoAtual + deltaVirtual
+          // Isso preserva o reservado porque: saldoFisico = saldoVirtual + reservado
+          // Se deltaVirtual = +5, então saldoFisicoFinal = saldoFisicoAtual + 5 (reservado se mantém)
+          const saldoFisicoFinal = Number(saldoFisicoAtualDeposito) + deltaVirtual;
+          
+          // Usar saldoFisico final para preservar reservado
+          quantidadeFinalParaAtualizacao = Math.max(0, saldoFisicoFinal);
+          
+          logWithTimestamp(
+            console.log,
+            `[SINCRONIZADOR] 🔒 Preservando reservado: saldoVirtualAtual=${saldoVirtualAtualDeposito}, saldoFisicoAtual=${saldoFisicoAtualDeposito}, deltaVirtual=${deltaVirtual}, saldoFisicoFinal=${quantidadeFinalParaAtualizacao}`
+          );
+        } else {
+          // Se não conseguiu buscar saldos, usar quantidadeDestino (pode perder reservado, mas é fallback)
+          logWithTimestamp(
+            console.warn,
+            `[SINCRONIZADOR] ⚠️ Não foi possível buscar saldos completos, usando quantidadeDestino diretamente (pode perder reservado)`
+          );
+        }
+
         logWithTimestamp(
           console.log,
           `[SINCRONIZADOR] 🔄 Atualizando depósito compartilhado ${deposito.id} (${deposito.nome}) na conta ${contaNome} (${deposito.contaBlingId})` +
-            ` | destino=${quantidadeDestino}` +
+            ` | destinoVirtual=${quantidadeDestino}` +
+            ` | destinoFisico=${quantidadeFinalParaAtualizacao}` +
             ` | base=${quantidadeNormalizada}` +
-            ` | saldoAtual=${saldoAtualDeposito ?? 'n/a'}` +
+            ` | saldoVirtualAtual=${saldoVirtualAtualDeposito ?? 'n/a'}` +
+            ` | saldoFisicoAtual=${saldoFisicoAtualDeposito ?? 'n/a'}` +
             ` | deltaAplicado=${deltaAplicado ?? 'n/a'}` +
             ` | aplicarDelta=${aplicarDelta ? 'sim' : 'não'}` +
             ` | abatimento=${abaterNosCompartilhados ? 'sim' : 'não'}` +
@@ -775,7 +857,7 @@ class SincronizadorEstoqueService {
           tenantId,
           blingAccountId: deposito.contaBlingId,
           depositoId: deposito.id,
-          quantidade: quantidadeDestino,
+          quantidade: quantidadeFinalParaAtualizacao, // Usar saldoFisico final para preservar reservado
           tipoOperacao: 'B',
           produtoIdBling: produtoInfo.id,
           sku,

@@ -56,15 +56,16 @@ const extrairSaldosDepositos = (produto) => {
 
     if (!id) continue;
 
+    // Priorizar saldoVirtual (como na fórmula do Make)
+    // Removido saldoFisico do fallback para garantir uso consistente de saldoVirtual
     const valor =
       Number(
-        item.saldo ??
-          item.saldoVirtual ??
+        item.saldoVirtual ??
+          item.saldoVirtualTotal ??
           item.saldoDisponivel ??
           item.saldoAtual ??
+          item.saldo ??
           item.quantidade ??
-          item.saldoFisico ??
-          item.saldoVirtualTotal ??
           deposito?.saldo
       ) || 0;
 
@@ -136,6 +137,23 @@ class BlingEstoqueUnificadoService {
           );
         }
 
+        // Se produto não existe na conta, retornar 0 em vez de null (null quebra a soma)
+        if (!produto) {
+          estoquePorConta[conta.blingAccountId] = 0;
+          detalhesPorConta[conta.blingAccountId] = {
+            total: 0,
+            depositos: {},
+            monitorados: {},
+            contaId: conta.blingAccountId,
+            contaNome: conta.accountName,
+            produtoId: null,
+          };
+          console.log(
+            `[ESTOQUE-UNIFICADO] Produto ${skuNormalizado} não encontrado na conta ${conta.accountName}. Retornando 0.`
+          );
+          return; // Retornar da função async dentro do map (não usar continue)
+        }
+
         const saldosDepositos = extrairSaldosDepositos(produto);
         let estoqueConta = Object.values(saldosDepositos).reduce(
           (acc, valor) => acc + (Number(valor) || 0),
@@ -175,7 +193,8 @@ class BlingEstoqueUnificadoService {
             conta.blingAccountId,
             { usarSaldoVirtual: options.usarSaldoVirtual || false }
           );
-          saldosMonitorados[depositoId] = saldoDeposito;
+          // Garantir que retorna 0 em vez de null (null quebra a soma)
+          saldosMonitorados[depositoId] = Number(saldoDeposito) || 0;
           } catch (errorSaldo) {
             console.warn(
               `[ESTOQUE-UNIFICADO] ⚠️ Não foi possível obter saldo do depósito ${depositoId} para conta ${conta.accountName}: ${errorSaldo.message}`

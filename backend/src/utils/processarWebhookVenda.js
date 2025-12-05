@@ -708,6 +708,24 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
       null;
     const operacaoEstoque = payload?.data?.operacao || payload?.operacao || null;
 
+    // Log detalhado do webhook de estoque para investigar problema de reservado
+    console.log('[Webhook-Estoque] 📦 Webhook de estoque recebido:', {
+      produtoId,
+      depositoId,
+      operacaoEstoque,
+      quantidadeEstoque,
+      saldoFisicoTotal: payload?.data?.saldoFisicoTotal,
+      saldoVirtualTotal: payload?.data?.saldoVirtualTotal,
+      saldoReservado: payload?.data?.saldoReservado || payload?.data?.reservado,
+      saldoDepositoFisico: payload?.data?.deposito?.saldoFisico,
+      saldoDepositoVirtual: payload?.data?.deposito?.saldoVirtual,
+      saldoDepositoReservado: payload?.data?.deposito?.saldoReservado || payload?.data?.deposito?.reservado,
+      payloadKeys: Object.keys(payload || {}),
+      dataKeys: Object.keys(payload?.data || {}),
+      depositoKeys: Object.keys(payload?.data?.deposito || {}),
+      payloadPreview: JSON.stringify(payload).slice(0, 2000),
+    });
+
     if (produtoId) {
       eventos.push({
         produtoId: String(produtoId),
@@ -723,8 +741,10 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
           operacaoEstoque,
           saldoFisicoTotal: payload?.data?.saldoFisicoTotal,
           saldoVirtualTotal: payload?.data?.saldoVirtualTotal,
+          saldoReservado: payload?.data?.saldoReservado || payload?.data?.reservado,
           saldoDepositoFisico: payload?.data?.deposito?.saldoFisico,
           saldoDepositoVirtual: payload?.data?.deposito?.saldoVirtual,
+          saldoDepositoReservado: payload?.data?.deposito?.saldoReservado || payload?.data?.deposito?.reservado,
           raw: payload,
         },
         recebidoEm: new Date().toISOString(),
