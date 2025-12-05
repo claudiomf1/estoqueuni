@@ -50,17 +50,16 @@ services:
   # Nginx Proxy - Prod
   nginx-proxy:
     restart: always
-    # Portas NÃO expostas - nginx do sistema gerencia 80/443 para múltiplos domínios
-    # O container nginx-proxy funciona apenas internamente na rede Docker
-    # ports:
-    #   - "80:80"
-    #   - "443:443"
+    # Portas expostas para Cloudflare se conectar
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       # Certificados SSL
       - /etc/letsencrypt:/etc/letsencrypt:ro
-      # Webroot para Let's Encrypt
-      - /var/www/certbot:/var/www/certbot:ro
+      # Webroot para Let's Encrypt (comentado temporariamente - diretório já existe no host)
+      # - /var/www/certbot:/var/www/certbot:ro
     # Configuração de logs: manter por pelo menos 30 minutos
     logging:
       driver: "json-file"

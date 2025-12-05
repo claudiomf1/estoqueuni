@@ -122,14 +122,18 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       # Diretório vazio para suprimir scripts padrão do entrypoint (evita logs/avisos desnecessários)
       - ./nginx/entrypoint-empty:/docker-entrypoint.d:ro
-      # Webroot para Let's Encrypt
-      - /var/www/certbot:/var/www/certbot:ro
+      # Webroot para Let's Encrypt (comentado temporariamente - diretório já existe no host)
+      # - /var/www/certbot:/var/www/certbot:ro
+      # Certificados SSL do claudioia também
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     environment:
       # Evita que o script 10-listen-on-ipv6-by-default.sh tente alterar o default.conf (read-only)
       - ENABLE_IPV6=false
       - DISABLE_IPV6=true
     networks:
       - estoqueuni-net
+      # Conectar também à rede do claudioia para proxy
+      - claudioia-net
     restart: unless-stopped
     depends_on:
       - estoqueuni-backend
@@ -162,6 +166,8 @@ services:
 networks:
   estoqueuni-net:
     driver: bridge
+  claudioia-net:
+    external: true
 
 volumes:
   redis-data:
