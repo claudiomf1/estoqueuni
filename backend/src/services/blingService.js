@@ -1,5 +1,6 @@
 import axios from 'axios';
 import BlingConfig from '../models/BlingConfig.js';
+import ReservaEstoqueCache from '../models/ReservaEstoqueCache.js';
 
 /**
  * Serviço para integração com Bling API v3
@@ -15,6 +16,7 @@ class BlingService {
     this._lastRequestTimestamp = 0; 
     this._minRequestIntervalMs =
       Number(process.env.BLING_MIN_REQUEST_INTERVAL_MS) || 700;
+    this._reservaCacheTtlMs = 7 * 24 * 60 * 60 * 1000; // 7 dias (deslizante)
   }
 
   /**
@@ -559,6 +561,73 @@ class BlingService {
     }
   }
 
+  _buildReservaCacheKey(produtoId, depositoId, tenantId, blingAccountId) {
+    return {
+      tenantId,
+      blingAccountId,
+      produtoId: String(produtoId),
+      depositoId: String(depositoId),
+    };
+  }
+
+  async _obterReservaCache(produtoId, depositoId, tenantId, blingAccountId) {
+    try {
+      return await ReservaEstoqueCache.findOne(
+        this._buildReservaCacheKey(produtoId, depositoId, tenantId, blingAccountId)
+      ).lean();
+    } catch (error) {
+      console.warn('[BLING-SERVICE] ⚠️ Falha ao ler reserva cacheada:', error.message);
+      return null;
+    }
+  }
+
+  async _salvarReservaCache({
+    produtoId,
+    depositoId,
+    tenantId,
+    blingAccountId,
+    saldoReservadoEfetivo,
+    saldoFisico,
+    saldoVirtual,
+    reservadoCalculado = 0,
+    origem = 'implicito',
+    sku = null,
+  }) {
+    const expiresAt = new Date(Date.now() + this._reservaCacheTtlMs);
+    const key = this._buildReservaCacheKey(produtoId, depositoId, tenantId, blingAccountId);
+    try {
+      await ReservaEstoqueCache.findOneAndUpdate(
+        key,
+        {
+          $set: {
+            saldoReservadoEfetivo: Number(saldoReservadoEfetivo) || 0,
+            saldoFisico: Number(saldoFisico) || 0,
+            saldoVirtual: Number(saldoVirtual) || 0,
+            reservadoCalculado: Number(reservadoCalculado) || 0,
+            origem,
+            sku: sku || undefined,
+            ultimaLeitura: new Date(),
+            expiresAt,
+          },
+          $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true }
+      );
+    } catch (error) {
+      console.warn('[BLING-SERVICE] ⚠️ Falha ao salvar reserva cacheada:', error.message);
+    }
+  }
+
+  async _limparReservaCache(produtoId, depositoId, tenantId, blingAccountId) {
+    try {
+      await ReservaEstoqueCache.deleteOne(
+        this._buildReservaCacheKey(produtoId, depositoId, tenantId, blingAccountId)
+      );
+    } catch (error) {
+      console.warn('[BLING-SERVICE] ⚠️ Falha ao limpar reserva cacheada:', error.message);
+    }
+  }
+
   /**
    * Obtém saldo do produto em um depósito específico
    * @param {string|number} produtoId
@@ -576,6 +645,12 @@ class BlingService {
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const tentar = async (tentativa = 1) => {
       const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+      const cacheReserva = await this._obterReservaCache(
+        produtoId,
+        depositoId,
+        tenantId,
+        blingAccountId
+      );
 
       try {
         await this._waitForRateLimit();
@@ -604,46 +679,83 @@ class BlingService {
         // - reservado = quantidade reservada em pedidos
         
         // Extrair valores disponíveis
-        const saldoReservado = Number(registro.saldoReservado || registro.reservado || 0);
+        const saldoReservadoBling = Number(registro.saldoReservado || registro.reservado || 0);
         const saldoFisico = Number(registro.saldoFisicoTotal || 0);
         const saldoVirtual = Number(registro.saldoVirtualTotal || 0);
-        
-        // Se for para usar saldoVirtual (ex: pedidos de venda), priorizar saldoVirtual
-        // Garantir que retorna 0 em vez de null (null quebra a soma)
-        if (options.usarSaldoVirtual) {
-          return Number(saldoVirtual) || 0;
+
+        // Detecta reservado implícito (diferença entre físico e virtual)
+        let reservadoFinal = saldoReservadoBling;
+        let origemReservado = 'bling';
+
+        if (reservadoFinal <= 0 && saldoFisico > saldoVirtual && saldoFisico > 0) {
+          reservadoFinal = saldoFisico - saldoVirtual;
+          origemReservado = 'implicito_diff';
         }
-        
-        // Log detalhado para debug (primeira vez ou quando houver reservado)
-        if (saldoReservado > 0 || process.env.NODE_ENV === 'development') {
+
+        // Usa cache para recompor reservado em janelas em que Bling zera (ex.: faturamento parcial)
+        if (reservadoFinal <= 0 && cacheReserva?.saldoReservadoEfetivo > 0) {
+          // Preferir delta no virtual (consumo real) para evitar reduzir reserva apenas por variação de físico
+          const deltaVirtual = Math.max(0, (cacheReserva.saldoVirtual || 0) - saldoVirtual);
+          const reservadoRestante = Math.max(0, cacheReserva.saldoReservadoEfetivo - deltaVirtual);
+
+          if (reservadoRestante > 0) {
+            reservadoFinal = reservadoRestante;
+            origemReservado = 'cache_delta';
+            console.log(
+              `[BLING-SERVICE] 🔒 Usando reservado cacheado (delta) produto ${produtoId} depósito ${depositoId}: ` +
+              `reservadoCache=${cacheReserva.saldoReservadoEfetivo}, deltaVirtual=${deltaVirtual}, reservadoFinal=${reservadoFinal}`
+            );
+          }
+        }
+
+        const saldoVirtualParaCalculo =
+          reservadoFinal > 0 && (saldoFisico > 0 || cacheReserva?.saldoFisico > 0)
+            ? Math.max(
+                0,
+                (saldoFisico > 0 ? saldoFisico : cacheReserva?.saldoFisico || 0) - reservadoFinal
+              )
+            : saldoVirtual;
+
+        const saldoFisicoConsiderado =
+          saldoFisico > 0
+            ? saldoFisico
+            : Math.max(0, saldoVirtualParaCalculo + reservadoFinal);
+
+        if (saldoReservadoBling > 0 || reservadoFinal > 0 || process.env.NODE_ENV === 'development') {
           console.log(`[BLING-SERVICE] 📊 Saldo do produto ${produtoId} no depósito ${depositoId}:`, {
             saldoFisicoTotal: saldoFisico,
             saldoVirtualTotal: saldoVirtual,
-            saldoReservado: saldoReservado,
+            saldoReservado: saldoReservadoBling,
+            reservadoFinal,
+            origemReservado,
             usarSaldoVirtual: options.usarSaldoVirtual,
             camposDisponiveis: Object.keys(registro),
           });
         }
+
+        // Persistir ou limpar cache conforme resultado
+        if (reservadoFinal > 0) {
+          await this._salvarReservaCache({
+            produtoId,
+            depositoId,
+            tenantId,
+            blingAccountId,
+            saldoReservadoEfetivo: reservadoFinal,
+            saldoFisico,
+            saldoVirtual,
+            reservadoCalculado: origemReservado === 'implicito_diff' ? reservadoFinal : 0,
+            origem: origemReservado,
+            sku: registro?.produto?.codigo || registro?.produto?.sku || null,
+          });
+        } else if (cacheReserva) {
+          await this._limparReservaCache(produtoId, depositoId, tenantId, blingAccountId);
+        }
         
-        // Estratégia: usar saldoFisicoTotal quando disponível (já inclui reservado)
-        // Se não tiver saldoFisicoTotal, calcular: saldoVirtualTotal + reservado
-        // Garantir que retorna 0 em vez de null (null quebra a soma)
-        let saldoFinal = 0;
-        
-        if (saldoFisico > 0) {
-          // saldoFisicoTotal já inclui o reservado, então usamos ele diretamente
-          saldoFinal = saldoFisico;
-        } else if (saldoVirtual > 0) {
-          // Se só temos saldoVirtualTotal, precisamos somar o reservado se disponível
-          if (saldoReservado > 0) {
-            saldoFinal = saldoVirtual + saldoReservado;
-          } else {
-            // Se não temos reservado, usar apenas o virtual (pode ser que não tenha reservado)
-            saldoFinal = saldoVirtual;
-          }
+        if (options.usarSaldoVirtual) {
+          return Number(saldoVirtualParaCalculo) || 0;
         }
 
-        return Number(saldoFinal) || 0;
+        return Number(saldoFisicoConsiderado) || 0;
       } catch (error) {
         if (error.response?.status === 429 && tentativa < 3) {
           const retryAfter =
