@@ -36,6 +36,9 @@ router.get('/logs', controller.obterLogs.bind(controller));
 router.put('/webhook', controller.atualizarWebhook.bind(controller));
 router.put('/webhook/marcar-conta-configurada', controller.marcarContaWebhookConfigurada.bind(controller));
 
+// ===== RECONCILIAÇÃO ON-DEMAND =====
+router.put('/reconciliacao-on-demand', controller.atualizarReconciliacaoOnDemand.bind(controller));
+
 // ===== LIMPEZA DE DADOS =====
 router.delete('/estatisticas', controller.limparEstatisticas.bind(controller));
 

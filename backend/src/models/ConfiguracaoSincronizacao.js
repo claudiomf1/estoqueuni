@@ -119,6 +119,14 @@ const configuracaoSincronizacaoSchema = new mongoose.Schema({
     },
   },
 
+  // Configuração da reconciliação on-demand
+  reconciliacaoOnDemand: {
+    ativo: {
+      type: Boolean,
+      default: true,
+    },
+  },
+
   // Data da última sincronização
   ultimaSincronizacao: {
     type: Date,
@@ -347,6 +355,9 @@ configuracaoSincronizacaoSchema.statics.buscarOuCriar = async function (tenantId
       },
       webhook: {
         ativo: false,
+      },
+      reconciliacaoOnDemand: {
+        ativo: true,
       },
       estatisticas: {
         totalWebhooks: 0,

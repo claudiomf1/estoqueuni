@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Container, Accordion, Button, Form, Badge, Spinner, Alert, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { useTenant } from '../context/TenantContext';
-import { useQuery, useQueryClient } from 'react-query';
+import { useQuery, useQueryClient, useMutation } from 'react-query';
 import { sincronizacaoApi } from '../services/sincronizacaoApi';
 import StatusSincronizacao from '../components/SincronizacaoEstoque/StatusSincronizacao';
 import ConfiguracaoDepositos from '../components/SincronizacaoEstoque/ConfiguracaoDepositos/ConfiguracaoDepositos';
@@ -38,7 +38,7 @@ export default function SincronizacaoEstoque() {
   );
 
   // Query para obter configuração completa (inclui depósitos)
-  const { data: configResponse, isLoading: isLoadingConfig } = useQuery(
+  const { data: configResponse, isLoading: isLoadingConfig, refetch: refetchConfig } = useQuery(
     ['config-sincronizacao', tenantId],
     () => sincronizacaoApi.obterConfiguracao(tenantId),
     {
@@ -48,6 +48,23 @@ export default function SincronizacaoEstoque() {
         if (data) {
           setConfigDepositos(data);
         }
+      }
+    }
+  );
+
+  // Estado para toggle de reconciliação on-demand
+  const reconciliacaoOnDemandAtiva = configResponse?.reconciliacaoOnDemand?.ativo !== false; // default true
+
+  // Mutation para atualizar toggle de reconciliação on-demand
+  const atualizarReconciliacaoMutation = useMutation(
+    (ativo) => sincronizacaoApi.atualizarReconciliacaoOnDemand(tenantId, ativo),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['config-sincronizacao', tenantId]);
+        toast.success('Configuração de reconciliação on-demand atualizada');
+      },
+      onError: (error) => {
+        toast.error(error?.mensagem || 'Erro ao atualizar configuração');
       }
     }
   );
@@ -297,6 +314,31 @@ export default function SincronizacaoEstoque() {
             <strong>Reconciliar Estoques (on-demand)</strong>
           </Accordion.Header>
           <Accordion.Body>
+            {/* Toggle para ativar/desativar reconciliação on-demand */}
+            <div className="mb-4 p-3 bg-light rounded">
+              <div className="d-flex align-items-center justify-content-between">
+                <div className="d-flex align-items-center gap-2">
+                  <strong>Reconciliação On-Demand</strong>
+                  <InfoTooltip message="Quando desativada, os botões de reconciliação ficam desabilitados e não processam nenhum SKU." />
+                </div>
+                <Form.Check
+                  type="switch"
+                  id="toggle-reconciliacao-on-demand"
+                  label={reconciliacaoOnDemandAtiva ? 'Ativada' : 'Desativada'}
+                  checked={reconciliacaoOnDemandAtiva}
+                  onChange={(e) => {
+                    atualizarReconciliacaoMutation.mutate(e.target.checked);
+                  }}
+                  disabled={atualizarReconciliacaoMutation.isLoading}
+                />
+              </div>
+              {!reconciliacaoOnDemandAtiva && (
+                <Alert variant="warning" className="mt-2 mb-0 py-2">
+                  <small>Reconciliação on-demand está desativada. Ative para usar as funcionalidades abaixo.</small>
+                </Alert>
+              )}
+            </div>
+
             <div className="mb-3">
               <div className="d-flex align-items-center mb-2">
                 <strong className="me-2">Suspeitos (últimos 100)</strong>
@@ -327,7 +369,7 @@ export default function SincronizacaoEstoque() {
               )}
               <Button
                 variant="primary"
-                disabled={reconciliando || suspeitos.length === 0}
+                disabled={reconciliando || suspeitos.length === 0 || !reconciliacaoOnDemandAtiva}
                 onClick={() =>
                   reconciliarWrapper(
                     () => sincronizacaoApi.reconciliarSuspeitos(tenantId, 100),
@@ -371,7 +413,7 @@ export default function SincronizacaoEstoque() {
                 </Form.Group>
                 <Button
                   variant="primary"
-                  disabled={reconciliando}
+                  disabled={reconciliando || !reconciliacaoOnDemandAtiva}
                   onClick={() =>
                     reconciliarWrapper(
                       () => sincronizacaoApi.reconciliarRecentes(tenantId, horasRecentes, limiteRecentes),
@@ -405,7 +447,7 @@ export default function SincronizacaoEstoque() {
               </Form.Group>
               <Button
                 variant="primary"
-                disabled={reconciliando || !listaSkusManual.trim()}
+                disabled={reconciliando || !listaSkusManual.trim() || !reconciliacaoOnDemandAtiva}
                 onClick={() => {
                   const skus = listaSkusManual
                     .split(/[,\\n]/)

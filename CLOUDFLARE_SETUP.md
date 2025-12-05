@@ -147,3 +147,4 @@ Para mais informações sobre configuração do Cloudflare:
 - Documentação: https://developers.cloudflare.com/ssl/origin-configuration/
 - Status: https://www.cloudflarestatus.com/
 
+

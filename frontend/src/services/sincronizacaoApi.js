@@ -160,6 +160,18 @@ export const sincronizacaoApi = {
       params: { tenantId }
     }),
 
+  /**
+   * Atualiza configuração da reconciliação on-demand
+   * @param {string} tenantId - ID do tenant
+   * @param {boolean} ativo - Status da reconciliação on-demand
+   * @returns {Promise} Resposta com configuração atualizada
+   */
+  atualizarReconciliacaoOnDemand: (tenantId, ativo) =>
+    api.put('/reconciliacao-on-demand', {
+      tenantId,
+      ativo
+    }),
+
 };
 
 export default sincronizacaoApi;

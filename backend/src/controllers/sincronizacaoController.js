@@ -134,6 +134,18 @@ class SincronizacaoController {
         return res.status(400).json({ success: false, message: 'tenantId é obrigatório' });
       }
 
+      // Verificar se reconciliação on-demand está ativa
+      const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
+      if (!config) {
+        return res.status(404).json({ success: false, message: 'Configuração não encontrada' });
+      }
+      if (config.reconciliacaoOnDemand?.ativo === false) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Reconciliação on-demand está desativada. Ative nas configurações para usar esta funcionalidade.' 
+        });
+      }
+
       const limite = Math.min(Number(req.body?.limit) || 50, 200);
       const lista = await inconsistenciasService.listarSuspeitos(tenantId, limite);
       const skus = (lista || []).map((item) => item.sku).filter(Boolean);
@@ -152,6 +164,19 @@ class SincronizacaoController {
       if (!tenantId) {
         return res.status(400).json({ success: false, message: 'tenantId é obrigatório' });
       }
+
+      // Verificar se reconciliação on-demand está ativa
+      const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
+      if (!config) {
+        return res.status(404).json({ success: false, message: 'Configuração não encontrada' });
+      }
+      if (config.reconciliacaoOnDemand?.ativo === false) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Reconciliação on-demand está desativada. Ative nas configurações para usar esta funcionalidade.' 
+        });
+      }
+
       const horas = Number(req.body?.horas) || 24;
       const limite = Math.min(Number(req.body?.limit) || 20, 200);
       const skus = await inconsistenciasService.obterUltimosSkusProcessados(tenantId, horas, limite);
@@ -173,6 +198,18 @@ class SincronizacaoController {
       }
       if (!skus.length) {
         return res.status(400).json({ success: false, message: 'Lista de SKUs não fornecida' });
+      }
+
+      // Verificar se reconciliação on-demand está ativa
+      const config = await ConfiguracaoSincronizacao.findOne({ tenantId });
+      if (!config) {
+        return res.status(404).json({ success: false, message: 'Configuração não encontrada' });
+      }
+      if (config.reconciliacaoOnDemand?.ativo === false) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Reconciliação on-demand está desativada. Ative nas configurações para usar esta funcionalidade.' 
+        });
       }
 
       const resultado = await this._reconciliarListaSkus(skus, tenantId, 'reconciliacao-manual');
@@ -393,6 +430,40 @@ class SincronizacaoController {
       return res.status(500).json({
         success: false,
         message: error.message || 'Erro ao atualizar webhook',
+      });
+    }
+  }
+
+  async atualizarReconciliacaoOnDemand(req, res) {
+    try {
+      const tenantId = req.body?.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({
+          success: false,
+          message: 'tenantId é obrigatório',
+        });
+      }
+
+      const { ativo } = req.body;
+
+      const campos = {};
+      if (typeof ativo === 'boolean') campos['reconciliacaoOnDemand.ativo'] = ativo;
+
+      const config = await ConfiguracaoSincronizacao.findOneAndUpdate(
+        { tenantId },
+        { $set: campos },
+        { new: true }
+      );
+
+      return res.json({
+        success: true,
+        data: this._formatarConfig(config),
+      });
+    } catch (error) {
+      console.error('[SINCRONIZACAO] Erro ao atualizar reconciliação on-demand:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Erro ao atualizar reconciliação on-demand',
       });
     }
   }
@@ -645,6 +716,14 @@ class SincronizacaoController {
 
     if (typeof body.ativo === 'boolean') {
       payload.ativo = body.ativo;
+    }
+
+    if (body.reconciliacaoOnDemand) {
+      payload.reconciliacaoOnDemand = {
+        ativo: typeof body.reconciliacaoOnDemand.ativo === 'boolean' 
+          ? body.reconciliacaoOnDemand.ativo 
+          : true,
+      };
     }
 
     return payload;
