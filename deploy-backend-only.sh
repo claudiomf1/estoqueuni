@@ -176,3 +176,4 @@ echo "  2. Verificar status: ssh ${REMOTE_HOST} 'cd ${APP_PATH} && docker compos
 
 
 
+

@@ -104,7 +104,7 @@ services:
       - estoqueuni-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -112,6 +112,7 @@ services:
 
   # Nginx Proxy Reverso
   nginx-proxy:
+    profiles: ["legacy"]  # não usar com nginx-central
     image: nginx:alpine
     container_name: estoqueuni-nginx
     # Portas NÃO expostas - nginx do sistema gerencia 80/443
@@ -132,15 +133,63 @@ services:
       - DISABLE_IPV6=true
     networks:
       - estoqueuni-net
-      # Conectar também à rede do claudioia para proxy
-      - claudioia-net
     restart: unless-stopped
     depends_on:
       - estoqueuni-backend
       - estoqueuni-backend-ai
       - estoqueuni-frontend
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # EstoqueUni v2 (clone para testes/blue-green sem expor portas do host)
+  estoqueuni_v2:
+    image: nginx:alpine
+    container_name: estoqueuni_v2
+    expose:
+      - "80"
+      - "443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/entrypoint-empty:/docker-entrypoint.d:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    environment:
+      - ENABLE_IPV6=false
+      - DISABLE_IPV6=true
+    depends_on:
+      - estoqueuni-backend
+      - estoqueuni-backend-ai
+      - estoqueuni-frontend
+    networks:
+      - estoqueuni-net     # fala com backend/frontend atuais
+      - internal_net       # rede compartilhada com o nginx-central
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Nginx central (recebe 80/443 do host e distribui para sistemas internos)
+  nginx-central:
+    image: nginx:alpine
+    container_name: nginx-central
+    # Portas mapeadas no override (prod) para facilitar troca 8080/8443 -> 80/443
+    volumes:
+      - ../../infra/nginx-central/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../infra/nginx-central/conf.d:/etc/nginx/conf.d:ro
+      # Montagem opcional para HTTPS direto no central (certificados locais)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - estoqueuni_v2
+    networks:
+      - internal_net
+      - estoqueuni-net   # para falar diretamente com backend/frontend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -166,8 +215,8 @@ services:
 networks:
   estoqueuni-net:
     driver: bridge
-  claudioia-net:
-    external: true
+  internal_net:
+    driver: bridge
 
 volumes:
   redis-data:

@@ -274,3 +274,4 @@ A reconciliação on-demand está implementada de forma **segura** e **não inte
 
 A seção de reconciliação on-demand está implementada corretamente e não interfere com a sincronização automática via webhooks.
 
+
