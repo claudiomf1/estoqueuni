@@ -205,7 +205,21 @@ export const blingApi = {
   deletarDeposito: (tenantId, blingAccountId, depositoId) =>
     api.delete(`/depositos/${depositoId}`, {
       params: { tenantId, ...(blingAccountId && { blingAccountId }) }
-    })
+    }),
+
+  /**
+   * Lista pedidos (campos básicos)
+   */
+  listarPedidos: (tenantId, blingAccountId, { limit = 20, page = 1 } = {}) =>
+    api.get('/pedidos', {
+      params: { tenantId, ...(blingAccountId ? { blingAccountId } : {}), limit, page }
+    }),
+
+  /**
+   * Remover pedido: limpa cache, exclui no Bling e recalcula compartilhados
+   */
+  removerPedido: (pedidoId, tenantId, blingAccountId) =>
+    api.post(`/pedidos/${pedidoId}/remover`, { tenantId, blingAccountId })
 };
 
 export default blingApi;

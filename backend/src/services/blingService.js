@@ -1406,6 +1406,170 @@ class BlingService {
   }
 
   /**
+   * Remove um pedido de venda no Bling
+   * @param {string|number} pedidoId
+   * @param {string} tenantId
+   * @param {string} blingAccountId
+   * @returns {Promise<boolean>} true se removido ou já inexistente
+   */
+  async deletarPedidoVenda(pedidoId, tenantId, blingAccountId) {
+    if (!pedidoId) {
+      throw new Error('pedidoId é obrigatório');
+    }
+    if (!tenantId) {
+      throw new Error('tenantId é obrigatório');
+    }
+    if (!blingAccountId) {
+      throw new Error('blingAccountId é obrigatório');
+    }
+
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+
+    try {
+      await this._waitForRateLimit();
+      await axios.delete(`${this.apiUrl}/pedidos/vendas/${pedidoId}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      console.log(
+        `[BLING-SERVICE] 🗑️ Pedido ${pedidoId} removido na conta ${blingAccountId}`
+      );
+      return true;
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      if (status === 404) {
+        console.warn(
+          `[BLING-SERVICE] ⚠️ Pedido ${pedidoId} não encontrado na conta ${blingAccountId} (já removido).`
+        );
+        return true;
+      }
+
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao deletar pedido - Requer re-autorização',
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        err.status = status;
+        throw err;
+      }
+
+      console.error(
+        `[BLING-SERVICE] ❌ Erro ao deletar pedido ${pedidoId}:`,
+        JSON.stringify(
+          {
+            status,
+            statusText: error.response?.statusText,
+            data,
+            reason,
+            url: `${this.apiUrl}/pedidos/vendas/${pedidoId}`,
+          },
+          null,
+          2
+        )
+      );
+
+      throw new Error(`Falha ao deletar pedido no Bling: ${reason}`);
+    }
+  }
+
+  /**
+   * Lista pedidos de venda no Bling (campos básicos)
+   * @param {string} tenantId
+   * @param {string} blingAccountId
+   * @param {Object} params { limit, page }
+   * @returns {Promise<Array>}
+   */
+  async listarPedidosVenda(tenantId, blingAccountId, params = {}) {
+    const accessToken = await this.setAuthForBlingAccount(tenantId, blingAccountId);
+    const limit = Number(params.limit) || 20;
+    const page = Number(params.page) || 1;
+
+    try {
+      await this._waitForRateLimit();
+      const response = await axios.get(`${this.apiUrl}/pedidos/vendas`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        params: {
+          limite: limit,
+          pagina: page,
+        },
+      });
+
+      const pedidos = response.data?.data || [];
+      return pedidos.map((p) => ({
+        id: p?.id,
+        numero: p?.numero,
+        data: p?.data,
+        cliente: p?.cliente?.nome || p?.contato?.nome || p?.clienteNome || null,
+        total: p?.total,
+        situacao: p?.situacao,
+        blingAccountId,
+      }));
+    } catch (error) {
+      const data = error.response?.data;
+      const status = error.response?.status;
+      const reason =
+        data?.error?.description ||
+        data?.error?.message ||
+        data?.message ||
+        error.message;
+
+      if (data?.error?.type === 'invalid_grant' || status === 401) {
+        await BlingConfig.findOneAndUpdate(
+          { tenantId, blingAccountId },
+          {
+            is_active: false,
+            last_error: 'invalid_grant/401 ao listar pedidos - Requer re-autorização',
+          }
+        ).catch(() => {});
+
+        const authUrl = await this.getAuthUrl(tenantId, blingAccountId);
+        const err = new Error('REAUTH_REQUIRED');
+        err.reauthUrl = authUrl;
+        err.reason = reason;
+        err.status = status;
+        throw err;
+      }
+
+      console.error(
+        `[BLING-SERVICE] ❌ Erro ao listar pedidos:`,
+        JSON.stringify(
+          {
+            status,
+            statusText: error.response?.statusText,
+            data,
+            reason,
+            url: `${this.apiUrl}/pedidos/vendas`,
+          },
+          null,
+          2
+        )
+      );
+
+      throw new Error(`Falha ao listar pedidos no Bling: ${reason}`);
+    }
+  }
+
+  /**
    * Deleta um depósito no Bling
    * NOTA: A API do Bling não permite deletar depósitos. 
    * Este método tenta inativar o depósito e depois remove da configuração local.

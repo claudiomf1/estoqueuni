@@ -8,10 +8,55 @@ import BlingConfig from '../models/BlingConfig.js';
 import autoUpdateTracker from './autoUpdateTracker.js'; 
 import { getBrazilNow } from '../utils/timezone.js'; 
 import inconsistenciasService from './inconsistenciaEstoqueService.js';
+import ReservaEstoqueCache from '../models/ReservaEstoqueCache.js';
+import pedidoReservadoService from './pedidoReservadoService.js';
 
 const logWithTimestamp = (fn, message) => {
   const iso = getBrazilNow().toISOString();
   fn(`[${iso}] ${message}`);
+};
+
+const limparCacheReservado = async (tenantId, produtoDetalhesMap, produtoIdOriginal = null) => {
+  if (!tenantId) return;
+
+  const filtros = [];
+  if (produtoDetalhesMap && produtoDetalhesMap.size > 0) {
+    for (const [blingAccountId, detalhes] of produtoDetalhesMap.entries()) {
+      if (!blingAccountId || !detalhes?.id) continue;
+      filtros.push({
+        tenantId,
+        blingAccountId,
+        produtoId: String(detalhes.id),
+      });
+    }
+  }
+
+  // Fallback: se não conseguimos mapear contas/produto, ainda assim limpamos por produtoId/tenantId
+  if (!filtros.length && produtoIdOriginal) {
+    filtros.push({
+      tenantId,
+      produtoId: String(produtoIdOriginal),
+    });
+  }
+
+  if (!filtros.length) {
+    return;
+  }
+
+  try {
+    const result = await ReservaEstoqueCache.deleteMany({ $or: filtros });
+    logWithTimestamp(
+      console.log,
+      `[SINCRONIZADOR] 🧹 Cache de reservado removido para exclusão de pedido | filtros=${JSON.stringify(
+        filtros
+      )} | removidos=${result?.deletedCount ?? 0}`
+    );
+  } catch (error) {
+    logWithTimestamp(
+      console.warn,
+      `[SINCRONIZADOR] ⚠️ Falha ao limpar cache de reservado na exclusão de pedido: ${error.message}`
+    );
+  }
 };
 
 /**
@@ -66,6 +111,11 @@ class SincronizadorEstoqueService {
       tenantId,
       { ...configObj, contasBling: contasAtivas }
     );
+
+    // Se veio exclusão de pedido, limpa cache de reservado antes de reler e atualizar compartilhados
+    if (options?.origemEvento === 'venda_removida') {
+      await limparCacheReservado(tenantId, produtoDetalhes, skuResolvido);
+    }
     const mapaDepositosMonitorados = await this._mapearDepositosPrincipaisPorConta(
       configObj,
       contasAtivas,
@@ -1061,6 +1111,144 @@ class SincronizadorEstoqueService {
         `[SINCRONIZADOR] Não foi possível registrar evento: ${error.message}`
       );
     }
+  }
+
+  /**
+   * Remove pedido via EstoqueUni: limpa cache de reservado, exclui pedido no Bling e recalcula compartilhados
+   * @param {Object} params
+   * @param {string|number} params.pedidoId
+   * @param {string} params.tenantId
+   * @param {string} params.blingAccountId
+   * @returns {Promise<Object>}
+   */
+  async removerPedido({ pedidoId, tenantId, blingAccountId }) {
+    if (!pedidoId) {
+      throw new Error('pedidoId é obrigatório para remover pedido');
+    }
+    if (!tenantId) {
+      throw new Error('tenantId é obrigatório para remover pedido');
+    }
+
+    const ehPedidoCache = String(pedidoId).startsWith('cache:');
+    if (!blingAccountId && !ehPedidoCache) {
+      throw new Error('blingAccountId é obrigatório para remover pedido');
+    }
+
+    const resultado = {
+      sucesso: false,
+      pedidoId,
+      produtos: [],
+      cacheRemovido: 0,
+    };
+
+    // Buscar itens do pedido para saber quais produtos recalcular (se não for fallback de cache)
+    let produtosDoPedido = [];
+    let produtoCacheFallback = null;
+    if (!ehPedidoCache) {
+      try {
+        const pedido = await blingService.getPedidoVenda(pedidoId, tenantId, blingAccountId);
+        const itens =
+          pedido?.itens ||
+          pedido?.items ||
+          pedido?.produtos ||
+          pedido?.data?.itens ||
+          [];
+        produtosDoPedido = (itens || [])
+          .map((item) => {
+            const prod =
+              item?.produto ||
+              item?.product ||
+              item?.item ||
+              item?.produtoId ||
+              item?.productId ||
+              null;
+            const id =
+              prod?.id ||
+              prod?.produtoId ||
+              item?.produtoId ||
+              item?.productId ||
+              item?.idProduto ||
+              null;
+            return id ? String(id) : null;
+          })
+          .filter(Boolean);
+      } catch (error) {
+        logWithTimestamp(
+          console.warn,
+          `[SINCRONIZADOR] ⚠️ Não foi possível ler itens do pedido ${pedidoId} antes de remover: ${error.message}`
+        );
+      }
+    } else {
+      // Pedido sem referência no Bling: tentar extrair produtoId do identificador cache:<produtoId>:<depositoId>
+      const partes = String(pedidoId).split(':');
+      if (partes.length >= 2 && partes[1]) {
+        produtoCacheFallback = partes[1];
+        produtosDoPedido = [partes[1]];
+      }
+    }
+
+    // Remover cache de reservado para os produtos envolvidos (ou para o tenant inteiro, se não souber quais)
+    try {
+      const filtroCache = produtosDoPedido.length
+        ? { tenantId, produtoId: { $in: produtosDoPedido.map(String) } }
+        : { tenantId };
+      const resDel = await ReservaEstoqueCache.deleteMany(filtroCache);
+      resultado.cacheRemovido = resDel?.deletedCount || 0;
+      logWithTimestamp(
+        console.log,
+        `[SINCRONIZADOR] 🧹 Cache de reservado removido ao excluir pedido ${pedidoId} | filtros=${JSON.stringify(
+          filtroCache
+        )} | removidos=${resultado.cacheRemovido}`
+      );
+    } catch (error) {
+      logWithTimestamp(
+        console.warn,
+        `[SINCRONIZADOR] ⚠️ Falha ao limpar cache de reservado ao excluir pedido ${pedidoId}: ${error.message}`
+      );
+    }
+
+    // Remover registro do pedido reservado
+    try {
+      await pedidoReservadoService.remover({ tenantId, blingAccountId, pedidoId });
+    } catch (error) {
+      logWithTimestamp(
+        console.warn,
+        `[SINCRONIZADOR] ⚠️ Falha ao remover pedido reservado ${pedidoId}: ${error.message}`
+      );
+    }
+
+    // Excluir no Bling (apenas se não for pedido gerado de cache)
+    if (!ehPedidoCache) {
+      try {
+        await blingService.deletarPedidoVenda(pedidoId, tenantId, blingAccountId);
+      } catch (error) {
+        resultado.erro = error.message;
+        return resultado;
+      }
+    }
+
+    // Recalcular compartilhados para cada produto (se conhecido)
+    const produtosParaRecalcular = produtosDoPedido.length ? produtosDoPedido : [];
+    const resultadosRecalc = [];
+    for (const produtoId of produtosParaRecalcular) {
+      try {
+        const recalc = await this.sincronizarEstoque(produtoId, tenantId, 'manual', {
+          origemEvento: 'venda_removida',
+          eventoDados: {
+            ajustarCompartilhadoPorVenda: true,
+            limparCacheReservado: true,
+          },
+        });
+        resultadosRecalc.push({ produtoId, sucesso: recalc?.success !== false });
+      } catch (error) {
+        resultadosRecalc.push({ produtoId, sucesso: false, erro: error.message });
+      }
+    }
+
+    resultado.sucesso = true;
+    resultado.produtos = produtosParaRecalcular;
+    resultado.resultadosRecalc = resultadosRecalc;
+    return resultado;
   }
 } 
 

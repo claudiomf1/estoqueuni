@@ -2,6 +2,11 @@ import { manipuladoresContas } from './manipuladores-contas.js';
 import { manipuladoresOAuth } from './manipuladores-oauth.js';
 import { manipuladoresEstoque } from './manipuladores-estoque.js';
 import { manipuladoresDepositos } from './manipuladores-depositos.js';
+import blingService from '../../services/blingService.js';
+import sincronizadorEstoqueService from '../../services/sincronizadorEstoqueService.js';
+import BlingConfig from '../../models/BlingConfig.js';
+import pedidoReservadoService from '../../services/pedidoReservadoService.js';
+import ReservaEstoqueCache from '../../models/ReservaEstoqueCache.js';
 
 /**
  * Controller para gerenciar múltiplas contas Bling por tenant
@@ -80,7 +85,79 @@ class BlingMultiAccountController {
   async deletarDeposito(req, res) {
     return manipuladoresDepositos.deletarDeposito(req, res);
   }
+
+  // ===== PEDIDOS =====
+  async listarPedidos(req, res) {
+    try {
+      const { tenantId, blingAccountId } = req.query;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'tenantId é obrigatório' });
+      }
+      const pedidos = await pedidoReservadoService.listar({
+        tenantId,
+        blingAccountId: blingAccountId || undefined,
+      });
+
+      // Fallback: se não houver nenhum pedido registrado, montar lista mínima a partir do cache de reservas
+      if (pedidos && pedidos.length > 0) {
+        return res.json({ data: pedidos });
+      }
+
+      const reservas = await ReservaEstoqueCache.find({
+        tenantId,
+        ...(blingAccountId ? { blingAccountId } : {}),
+        $or: [{ saldoReservadoEfetivo: { $gt: 0 } }, { reservadoCalculado: { $gt: 0 } }],
+      })
+        .select('blingAccountId produtoId depositoId saldoReservadoEfetivo reservadoCalculado updatedAt')
+        .lean();
+
+      const fallbackPedidos = (reservas || []).map((r) => ({
+        pedidoId: `cache:${r.produtoId}:${r.depositoId}`,
+        numero: '-',
+        data: r.updatedAt ? new Date(r.updatedAt).toISOString().slice(0, 10) : '-',
+        clienteNome: '-',
+        total: 0,
+        blingAccountId: r.blingAccountId,
+        produtoIds: [String(r.produtoId)],
+        origem: 'cache',
+      }));
+
+      return res.json({ data: fallbackPedidos });
+    } catch (error) {
+      console.error('[BlingMultiAccountController] Erro ao listar pedidos:', error.message);
+      return res.status(500).json({ error: error.message || 'Falha ao listar pedidos' });
+    }
+  }
+
+  async removerPedido(req, res) {
+    try {
+      const { pedidoId } = req.params;
+      const { tenantId, blingAccountId } = req.body;
+      if (!pedidoId) {
+        return res.status(400).json({ error: 'pedidoId é obrigatório' });
+      }
+      if (!tenantId) {
+        return res.status(400).json({ error: 'tenantId é obrigatório' });
+      }
+      if (!blingAccountId) {
+        return res.status(400).json({ error: 'blingAccountId é obrigatório' });
+      }
+
+      const resultado = await sincronizadorEstoqueService.removerPedido({
+        pedidoId,
+        tenantId,
+        blingAccountId,
+      });
+
+      if (resultado.sucesso) {
+        return res.json({ sucesso: true, resultado });
+      }
+      return res.status(400).json({ sucesso: false, resultado });
+    } catch (error) {
+      console.error('[BlingMultiAccountController] Erro ao remover pedido:', error.message);
+      return res.status(500).json({ error: error.message || 'Falha ao remover pedido' });
+    }
+  }
 }
 
 export default BlingMultiAccountController;
-

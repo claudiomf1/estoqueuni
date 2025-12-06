@@ -35,5 +35,8 @@ router.post('/depositos', controller.criarDeposito.bind(controller));
 router.get('/depositos/verificar', controller.verificarDeposito.bind(controller));
 router.delete('/depositos/:depositoId', controller.deletarDeposito.bind(controller));
 
-export default router;
+// ===== PEDIDOS =====
+router.get('/pedidos', controller.listarPedidos.bind(controller));
+router.post('/pedidos/:pedidoId/remover', controller.removerPedido.bind(controller));
 
+export default router;

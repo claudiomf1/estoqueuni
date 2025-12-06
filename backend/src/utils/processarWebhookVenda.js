@@ -6,6 +6,7 @@
  
 import blingService from '../services/blingService.js';
 import BlingConfig from '../models/BlingConfig.js';
+import pedidoReservadoService from '../services/pedidoReservadoService.js';
 
 /**
  * Extrai produtos de um pedido de venda do Bling
@@ -540,6 +541,8 @@ export function extrairInfoPedido(payload) {
     data: pedido?.data || payload.data?.data || pedido?.dataEmissao || payload.pedido?.data || new Date().toISOString(),
     blingAccountId: payload.blingAccountId || payload.accountId || payload.contaBlingId || payload.companyId || null,
     situacao: pedido?.situacao || payload.data?.situacao || pedido?.status || payload.data?.status || payload.pedido?.situacao || null,
+    total: pedido?.total || payload.data?.total || null,
+    contato: pedido?.contato || payload.data?.contato || null,
   };
 }
 
@@ -573,10 +576,8 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
       nomeEvento.includes('canceled') ||
       nomeEvento.includes('removed');
 
-    // Não processar order.deleted (não há itens e o pedido já foi removido)
     if (ehCancelamento) {
-      console.warn('[Webhook-Venda] ⚠️ Evento de cancelamento/remoção detectado. Nenhum item disponível. Ignorando para evitar carga desnecessária.');
-      return [];
+      console.warn('[Webhook-Venda] ⚠️ Evento de cancelamento/remoção detectado. Tentando buscar itens ou usar fallback para limpar cache e recalcular compartilhados.');
     }
 
     // Extrair informações do pedido
@@ -616,6 +617,45 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
     }
 
     console.log(`[Webhook-Venda] 📦 Produtos encontrados no pedido: ${produtos.length}`);
+    const ehUpdateSemItens = nomeEvento.includes('update') && produtos.length === 0;
+    const tratarComoCancelamento = ehCancelamento || ehUpdateSemItens;
+
+    // Persistir/limpar pedidos reservados com base nos itens encontrados
+    const produtoIdsPedido = Array.from(
+      new Set(
+        (Array.isArray(produtos) ? produtos : [])
+          .map((p) =>
+            p?.produto?.id ||
+            p?.produtoId ||
+            p?.idProduto ||
+            p?.id ||
+            p?.codigo ||
+            p?.codigoProduto ||
+            null
+          )
+          .filter(Boolean)
+          .map(String)
+      )
+    );
+
+    if (tratarComoCancelamento && infoPedido.pedidoId) {
+      pedidoReservadoService.remover({
+        tenantId,
+        blingAccountId: blingAccountIdFinal,
+        pedidoId: infoPedido.pedidoId,
+      });
+    } else if (infoPedido.pedidoId && tenantId && blingAccountIdFinal) {
+      pedidoReservadoService.upsert({
+        tenantId,
+        blingAccountId: blingAccountIdFinal,
+        pedidoId: infoPedido.pedidoId,
+        numero: infoPedido.numero,
+        data: infoPedido.data,
+        clienteNome: infoPedido?.contato?.nome || infoPedido?.clienteNome || null,
+        total: infoPedido.total,
+        produtoIds: produtoIdsPedido,
+      });
+    }
     
     if (produtos.length === 0) {
       console.warn(`[Webhook-Venda] ⚠️ Nenhum produto extraído do pedido ${pedidoId}. Verifique se o webhook inclui os itens ou se a API do Bling está acessível.`);
@@ -638,18 +678,18 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
         payload?.depositoId ||
         null;
 
-      if (produtoDireto) {
-        console.log(
-          `[Webhook-Venda] 🔄 Fallback: gerando evento único com produto direto do payload para recalcular compartilhado (produto ${produtoDireto}, quantidade ${quantidadeDireta ?? 'N/A'})`
-        );
-        const eventoId = `${pedidoId}-produto-${produtoDireto}`;
+          if (produtoDireto) {
+            console.log(
+              `[Webhook-Venda] 🔄 Fallback: gerando evento único com produto direto do payload para recalcular compartilhado (produto ${produtoDireto}, quantidade ${quantidadeDireta ?? 'N/A'})`
+            );
+            const eventoId = `${pedidoId}-produto-${produtoDireto}`;
         eventos.push({
           produtoId: String(produtoDireto),
           eventoId,
           depositoId: depositoDireto ? String(depositoDireto) : null,
           tenantId,
           blingAccountId: blingAccountIdFinal,
-          tipo: ehCancelamento ? 'venda_removida' : 'venda',
+          tipo: tratarComoCancelamento ? 'venda_removida' : 'venda',
           origem: 'webhook',
           dados: {
             pedidoId,
@@ -659,9 +699,10 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
             situacao: infoPedido.situacao,
             sku: null,
             item: null,
-            tipoOperacaoEstoque: ehCancelamento ? 'entrada' : 'saida',
+            tipoOperacaoEstoque: tratarComoCancelamento ? 'entrada' : 'saida',
             evento: payload.event,
             ajustarCompartilhadoPorVenda: payload.event === 'order.created',
+            limparCacheReservado: tratarComoCancelamento === true,
           },
           recebidoEm: new Date().toISOString(),
         });
@@ -678,7 +719,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
         depositoId: produto.depositoId,
         tenantId: tenantId,
         blingAccountId: blingAccountIdFinal,
-        tipo: ehCancelamento ? 'venda_removida' : 'venda',
+        tipo: tratarComoCancelamento ? 'venda_removida' : 'venda',
         origem: 'webhook',
         dados: {
           pedidoId: pedidoId,
@@ -688,9 +729,10 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
           situacao: infoPedido.situacao,
           sku: produto.sku || produto.produtoId,
           item: produto.item,
-          tipoOperacaoEstoque: ehCancelamento ? 'entrada' : 'saida',
+          tipoOperacaoEstoque: tratarComoCancelamento ? 'entrada' : 'saida',
           evento: payload.event,
           ajustarCompartilhadoPorVenda: payload.event === 'order.created',
+          limparCacheReservado: tratarComoCancelamento === true,
         },
         recebidoEm: new Date().toISOString(),
       });

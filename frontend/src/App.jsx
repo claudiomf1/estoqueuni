@@ -13,6 +13,7 @@ import Produtos from './pages/Produtos';
 import SincronizacaoEstoque from './pages/SincronizacaoEstoque';
 import BlingCallback from './pages/BlingCallback';
 import PainelPresidente from './pages/PainelPresidente';
+import Pedidos from './pages/Pedidos';
 import ChatWidget from './components/ChatWidget';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -99,6 +100,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <SincronizacaoEstoque />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/pedidos"
+        element={
+          <PrivateRoute>
+            <Pedidos />
           </PrivateRoute>
         }
       />

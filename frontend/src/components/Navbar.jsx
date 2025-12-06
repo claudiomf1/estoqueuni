@@ -70,6 +70,13 @@ export default function Navbar() {
             >
               Sincronização
             </Nav.Link>
+            <Nav.Link
+              as={Link}
+              to="/pedidos"
+              active={isActive('/pedidos')}
+            >
+              Pedidos Reservados
+            </Nav.Link>
             {isOwner && (
               <Nav.Link
                 as={Link}
@@ -99,8 +106,6 @@ export default function Navbar() {
     </BootstrapNavbar>
   );
 }
-
-
 
 
 
