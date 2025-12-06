@@ -111,6 +111,15 @@ class BlingMultiAccountController {
         return acc;
       }, {});
 
+      // Se já existem pedidos no banco, retorná-los (com nome da conta) e não exibir fallback de cache
+      if (pedidosDb && pedidosDb.length > 0) {
+        const pedidosEnriquecidos = pedidosDb.map((p) => ({
+          ...p,
+          accountName: p.accountName || contaPorId[p.blingAccountId] || p.blingAccountId,
+        }));
+        return res.json({ data: pedidosEnriquecidos });
+      }
+
       const reservas = await ReservaEstoqueCache.find({
         tenantId,
         ...(blingAccountId ? { blingAccountId } : {}),
@@ -130,76 +139,11 @@ class BlingMultiAccountController {
         origem: 'cache',
       }));
 
-      // Mescla pedidos da coleção com as reservas do cache (fallback) para não perder entradas
-      const pedidosMap = new Map();
-      const adicionarPedido = (p) => {
-        const pedidoId = String(p.pedidoId || p.id || `pedido-${pedidosMap.size}`);
-        const chave = `${p.blingAccountId || 'sem-conta'}:${pedidoId}`;
-        pedidosMap.set(chave, {
-          ...p,
-          pedidoId,
-          accountName: p.accountName || contaPorId[p.blingAccountId] || p.blingAccountId,
-        });
-      };
-
-      (pedidosDb || []).forEach(adicionarPedido);
-      (fallbackPedidos || []).forEach(adicionarPedido);
-
-      const pedidosEnriquecidos = Array.from(pedidosMap.values());
-
-      // Completa dados faltantes (cliente, numero, total) buscando no Bling quando possível
-      for (const pedido of pedidosEnriquecidos) {
-        const precisaEnriquecerCliente = !pedido.clienteNome;
-        const precisaEnriquecerNumero = !pedido.numero || pedido.numero === '-';
-        const precisaEnriquecerData = !pedido.data || pedido.data === '-';
-        const precisaEnriquecerTotal =
-          pedido.total === undefined || pedido.total === null || Number.isNaN(pedido.total);
-
-        const ehPedidoCache = String(pedido.pedidoId).startsWith('cache:');
-        if (ehPedidoCache || !(precisaEnriquecerCliente || precisaEnriquecerNumero || precisaEnriquecerTotal || precisaEnriquecerData)) {
-          continue;
-        }
-
-        try {
-          const detalhes = await blingService.getPedidoVenda(
-            pedido.pedidoId,
-            tenantId,
-            pedido.blingAccountId
-          );
-          if (detalhes) {
-            pedido.clienteNome =
-              pedido.clienteNome ||
-              detalhes?.cliente?.nome ||
-              detalhes?.contato?.nome ||
-              detalhes?.clienteNome ||
-              null;
-            pedido.numero = pedido.numero || detalhes?.numero || detalhes?.numeroPedido || null;
-            pedido.data =
-              pedido.data ||
-              detalhes?.data ||
-              detalhes?.dataEmissao ||
-              detalhes?.createdAt ||
-              null;
-            const totalDetalhes =
-              detalhes?.total ??
-              detalhes?.valor ??
-              detalhes?.valorTotal ??
-              detalhes?.valorPedido ??
-              null;
-            if (pedido.total === undefined || pedido.total === null || Number(pedido.total) === 0) {
-              const totalNormalizado = Number(totalDetalhes);
-              pedido.total = Number.isFinite(totalNormalizado) ? totalNormalizado : pedido.total;
-            }
-          }
-        } catch (error) {
-          console.warn(
-            `[BlingMultiAccountController] ⚠️ Falha ao enriquecer pedido ${pedido.pedidoId}:`,
-            error.message
-          );
-        }
-      }
-
-      return res.json({ data: pedidosEnriquecidos });
+      // Somente fallback de cache (sem pedidos no banco)
+      return res.json({ data: fallbackPedidos.map((p) => ({
+        ...p,
+        accountName: contaPorId[p.blingAccountId] || p.blingAccountId,
+      })) });
     } catch (error) {
       console.error('[BlingMultiAccountController] Erro ao listar pedidos:', error.message);
       return res.status(500).json({ error: error.message || 'Falha ao listar pedidos' });

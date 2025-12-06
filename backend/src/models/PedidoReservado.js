@@ -10,6 +10,14 @@ const pedidoReservadoSchema = new mongoose.Schema(
     clienteNome: { type: String, trim: true },
     total: { type: Number, default: 0 },
     produtoIds: [{ type: String, trim: true }],
+    itens: [
+      {
+        produtoId: { type: String, trim: true },
+        sku: { type: String, trim: true },
+        depositoId: { type: String, trim: true },
+        quantidade: { type: Number },
+      },
+    ],
   },
   { timestamps: true }
 );

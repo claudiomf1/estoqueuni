@@ -10,6 +10,7 @@ const pedidoReservadoService = {
     clienteNome,
     total,
     produtoIds = [],
+    itens = [],
   }) {
     if (!tenantId || !blingAccountId || !pedidoId) return null;
     const produtoIdsUnicos = Array.from(
@@ -17,6 +18,16 @@ const pedidoReservadoService = {
         (Array.isArray(produtoIds) ? produtoIds : []).filter(Boolean).map(String)
       )
     );
+    const itensNormalizados = (Array.isArray(itens) ? itens : [])
+      .map((item) => ({
+        produtoId: item?.produtoId ? String(item.produtoId) : null,
+        sku: item?.sku ? String(item.sku) : null,
+        depositoId: item?.depositoId ? String(item.depositoId) : null,
+        quantidade: Number.isFinite(Number(item?.quantidade))
+          ? Number(item.quantidade)
+          : undefined,
+      }))
+      .filter((item) => item.produtoId || item.sku);
     try {
       await PedidoReservado.findOneAndUpdate(
         { tenantId, blingAccountId, pedidoId: String(pedidoId) },
@@ -27,6 +38,7 @@ const pedidoReservadoService = {
             clienteNome: clienteNome || undefined,
             total: Number(total) || 0,
             produtoIds: produtoIdsUnicos,
+            itens: itensNormalizados,
           },
         },
         { upsert: true, new: true }

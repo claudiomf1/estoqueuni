@@ -637,6 +637,28 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
           .map(String)
       )
     );
+    const itensPedido = (Array.isArray(produtos) ? produtos : [])
+      .map((p) => ({
+        produtoId:
+          p?.produtoId ||
+          p?.produto?.id ||
+          p?.idProduto ||
+          p?.id ||
+          p?.codigo ||
+          null,
+        sku: p?.sku || p?.produto?.codigo || p?.codigoProduto || null,
+        depositoId:
+          p?.depositoId ||
+          p?.deposito?.id ||
+          p?.deposito?.depositoId ||
+          p?.deposito?.depositId ||
+          p?.deposito?.codigo ||
+          p?.depositId ||
+          p?.idDeposito ||
+          null,
+        quantidade: Number.isFinite(Number(p?.quantidade)) ? Number(p.quantidade) : null,
+      }))
+      .filter((item) => item.produtoId || item.sku);
 
     if (tratarComoCancelamento && infoPedido.pedidoId) {
       pedidoReservadoService.remover({
@@ -654,6 +676,7 @@ export async function processarWebhookVenda(payload, tenantId = null, blingAccou
         clienteNome: infoPedido?.contato?.nome || infoPedido?.clienteNome || null,
         total: infoPedido.total,
         produtoIds: produtoIdsPedido,
+        itens: itensPedido,
       });
     }
     
