@@ -10,6 +10,7 @@ import { getBrazilNow } from '../utils/timezone.js';
 import inconsistenciasService from './inconsistenciaEstoqueService.js';
 import ReservaEstoqueCache from '../models/ReservaEstoqueCache.js';
 import pedidoReservadoService from './pedidoReservadoService.js';
+import PedidoReservado from '../models/PedidoReservado.js';
 
 const logWithTimestamp = (fn, message) => {
   const iso = getBrazilNow().toISOString();
@@ -180,6 +181,7 @@ class SincronizadorEstoqueService {
       operacaoEstoque === 'entrada' &&
       deltaQuantidadeValida &&
       deltaQuantidade > 0;
+    const ehRemocaoVenda = options?.origemEvento === 'venda_removida';
 
     // Novo comportamento: depósitos compartilhados recebem quantidade priorizando:
     // saldoVirtualTotal do evento (prioridade máxima, consistente com busca) -> saldoFisicoTotal (fallback) -> 
@@ -238,6 +240,15 @@ class SincronizadorEstoqueService {
       logWithTimestamp(
         console.log,
         `[SINCRONIZADOR] 📦 Evento de estoque detectado: usando soma dos principais (${quantidadeParaCompartilhado}) para atualizar depósitos compartilhados`
+      );
+    }
+    // Para remoção de venda (venda_removida), rebasear usando soma dos principais
+    else if (ehRemocaoVenda) {
+      quantidadeParaCompartilhado = quantidadeBase;
+      fonteQuantidade = 'soma_principais';
+      logWithTimestamp(
+        console.log,
+        `[SINCRONIZADOR] ↩️ Remoção de venda: rebaseando depósitos compartilhados com soma dos principais (${quantidadeParaCompartilhado})`
       );
     }
     // Para OUTROS CASOS (vendas sem order.created, etc): manter lógica atual
@@ -1177,6 +1188,42 @@ class SincronizadorEstoqueService {
           console.warn,
           `[SINCRONIZADOR] ⚠️ Não foi possível ler itens do pedido ${pedidoId} antes de remover: ${error.message}`
         );
+      }
+
+      // Fallback: usar itens já persistidos no PedidoReservado se não conseguimos ler do Bling
+      if (produtosDoPedido.length === 0) {
+        try {
+          const pedidoSalvo = await PedidoReservado.findOne({
+            tenantId,
+            pedidoId: String(pedidoId),
+            blingAccountId,
+          })
+            .select('itens produtoIds')
+            .lean();
+          if (pedidoSalvo) {
+            const produtosItens = Array.isArray(pedidoSalvo.itens)
+              ? pedidoSalvo.itens
+                  .map((item) => item?.produtoId || item?.sku || null)
+                  .filter(Boolean)
+                  .map(String)
+              : [];
+            const produtosLista = Array.isArray(pedidoSalvo.produtoIds)
+              ? pedidoSalvo.produtoIds.filter(Boolean).map(String)
+              : [];
+            produtosDoPedido = Array.from(new Set([...produtosItens, ...produtosLista]));
+            logWithTimestamp(
+              console.log,
+              `[SINCRONIZADOR] ♻️ Usando itens persistidos do pedido ${pedidoId} para recalcular: ${JSON.stringify(
+                produtosDoPedido
+              )}`
+            );
+          }
+        } catch (error) {
+          logWithTimestamp(
+            console.warn,
+            `[SINCRONIZADOR] ⚠️ Falha ao buscar itens persistidos do pedido ${pedidoId}: ${error.message}`
+          );
+        }
       }
     } else {
       // Pedido sem referência no Bling: tentar extrair produtoId do identificador cache:<produtoId>:<depositoId>
