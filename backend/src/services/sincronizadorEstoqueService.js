@@ -1226,6 +1226,8 @@ class SincronizadorEstoqueService {
         return resultado;
       }
     }
+    // Aguardar breve tempo para o Bling refletir saldo/reservado antes de recalcular compartilhados
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
     // Recalcular compartilhados para cada produto (se conhecido)
     const produtosParaRecalcular = produtosDoPedido.length ? produtosDoPedido : [];
