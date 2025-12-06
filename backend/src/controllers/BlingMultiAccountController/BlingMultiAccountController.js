@@ -111,12 +111,77 @@ class BlingMultiAccountController {
         return acc;
       }, {});
 
-      // Se já existem pedidos no banco, retorná-los (com nome da conta) e não exibir fallback de cache
+      // Se já existem pedidos no banco, tentar enriquecer dados faltantes (cliente/total/numero/data) e não exibir fallback de cache
       if (pedidosDb && pedidosDb.length > 0) {
-        const pedidosEnriquecidos = pedidosDb.map((p) => ({
-          ...p,
-          accountName: p.accountName || contaPorId[p.blingAccountId] || p.blingAccountId,
-        }));
+        const pedidosEnriquecidos = [];
+
+        for (const p of pedidosDb) {
+          const pedidoEnriquecido = {
+            ...p,
+            accountName: p.accountName || contaPorId[p.blingAccountId] || p.blingAccountId,
+          };
+
+          const precisaCliente =
+            !pedidoEnriquecido.clienteNome && !pedidoEnriquecido.cliente;
+          const precisaNumero = !pedidoEnriquecido.numero || pedidoEnriquecido.numero === '-';
+          const precisaData = !pedidoEnriquecido.data || pedidoEnriquecido.data === '-';
+          const precisaTotal =
+            pedidoEnriquecido.total === undefined ||
+            pedidoEnriquecido.total === null ||
+            Number.isNaN(pedidoEnriquecido.total);
+
+          const ehPedidoCache = String(pedidoEnriquecido.pedidoId).startsWith('cache:');
+
+          if (!ehPedidoCache && (precisaCliente || precisaNumero || precisaData || precisaTotal)) {
+            try {
+              const detalhes = await blingService.getPedidoVenda(
+                pedidoEnriquecido.pedidoId,
+                tenantId,
+                pedidoEnriquecido.blingAccountId
+              );
+              if (detalhes) {
+                pedidoEnriquecido.clienteNome =
+                  pedidoEnriquecido.clienteNome ||
+                  detalhes?.cliente?.nome ||
+                  detalhes?.contato?.nome ||
+                  detalhes?.clienteNome ||
+                  null;
+                pedidoEnriquecido.numero =
+                  pedidoEnriquecido.numero || detalhes?.numero || detalhes?.numeroPedido || null;
+                pedidoEnriquecido.data =
+                  pedidoEnriquecido.data ||
+                  detalhes?.data ||
+                  detalhes?.dataEmissao ||
+                  detalhes?.createdAt ||
+                  null;
+                const totalDetalhes =
+                  detalhes?.total ??
+                  detalhes?.valor ??
+                  detalhes?.valorTotal ??
+                  detalhes?.valorPedido ??
+                  null;
+                if (
+                  pedidoEnriquecido.total === undefined ||
+                  pedidoEnriquecido.total === null ||
+                  Number(pedidoEnriquecido.total) === 0
+                ) {
+                  const totalNormalizado = Number(totalDetalhes);
+                  pedidoEnriquecido.total = Number.isFinite(totalNormalizado)
+                    ? totalNormalizado
+                    : pedidoEnriquecido.total;
+                }
+              }
+            } catch (error) {
+              console.warn(
+                `[BlingMultiAccountController] ⚠️ Falha ao enriquecer pedido ${pedidoEnriquecido.pedidoId}:`,
+                error.message
+              );
+            }
+          }
+
+          pedidosEnriquecidos.push(pedidoEnriquecido);
+        }
+
         return res.json({ data: pedidosEnriquecidos });
       }
 
